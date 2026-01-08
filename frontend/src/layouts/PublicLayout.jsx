@@ -1,6 +1,8 @@
 import { Link, Outlet } from 'react-router-dom'
+import { usePageTitle } from '../hooks/usePageTitle'
 
 export function PublicLayout() {
+  usePageTitle()
   return (
     <div className="public-shell">
       <header className="public-nav">

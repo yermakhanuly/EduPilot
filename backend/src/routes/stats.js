@@ -42,8 +42,19 @@ router.get('/overview', requireAuth, async (req, res) => {
   const stats = await prisma.userStats.findUnique({ where: { userId } })
   const levelInfo = stats ? levelFromXp(stats.totalXp) : { level: 1, nextThreshold: 500, progressToNext: 0 }
 
+  await prisma.task.deleteMany({
+    where: {
+      userId,
+      OR: [{ deadline: { lt: new Date() } }, { status: 'completed' }],
+    },
+  })
+
   const tasks = await prisma.task.findMany({
-    where: { userId },
+    where: {
+      userId,
+      status: { not: 'completed' },
+      OR: [{ deadline: null }, { deadline: { gte: new Date() } }],
+    },
     orderBy: { deadline: 'asc' },
     select: { id: true, title: true, deadline: true, status: true, priority: true },
     take: 5,

@@ -2,6 +2,7 @@ import { Link, NavLink, Outlet } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { statsApi } from '../api/client'
 import { useAuthStore } from '../store/authStore'
+import { usePageTitle } from '../hooks/usePageTitle'
 
 const navItems = [
   { to: '/app/dashboard', label: 'Dashboard' },
@@ -15,6 +16,7 @@ const navItems = [
 ]
 
 export function AppLayout() {
+  usePageTitle()
   const user = useAuthStore((state) => state.user)
   const { data } = useQuery({
     queryKey: ['stats-overview'],

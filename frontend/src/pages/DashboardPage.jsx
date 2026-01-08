@@ -44,7 +44,7 @@ export function DashboardPage() {
             <p className="eyebrow">AI aligned · Strict Mode ready</p>
             <h1>Dashboard</h1>
             <p className="lede">
-              Personalized study tracker. Add your tasks and availability to build your plan.
+              Personalized study tracker. Add your tasks and weekly classes to build your plan.
             </p>
           </div>
           <div className="hero-actions">
@@ -92,7 +92,7 @@ export function DashboardPage() {
           {blocks.length === 0 ? (
             <div className="empty-state">
               <strong>No study blocks yet</strong>
-              Generate a plan after adding tasks and availability.
+              Generate a plan after adding tasks and weekly classes.
             </div>
           ) : (
             <div className="session-list">

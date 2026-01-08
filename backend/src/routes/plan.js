@@ -20,16 +20,18 @@ const fixedEventSchema = z.object({
   end: z.string(),
 })
 
-const availabilitySchema = z.object({
-  day: z.number().int().min(0).max(6),
-  start: z.string(),
-  end: z.string(),
-})
-
 const planBodySchema = z.object({
   tasks: z.array(taskSchema).optional(),
   fixedEvents: z.array(fixedEventSchema).optional(),
-  availabilityRules: z.array(availabilitySchema).optional(),
+  availabilityRules: z
+    .array(
+      z.object({
+        day: z.number().int().min(0).max(6),
+        start: z.string(),
+        end: z.string(),
+      }),
+    )
+    .optional(),
 })
 
 function normalizeDeadline(value) {
@@ -52,16 +54,71 @@ function normalizeTasks(tasks) {
     .filter((task) => task.remainingHours > 0)
 }
 
-async function resolvePlanInputs(userId, body) {
+async function resolvePlanInputs(userId, body, weekStart) {
+  const defaultAvailabilityRules = Array.from({ length: 7 }, (_value, day) => ({
+    day,
+    start: '08:00',
+    end: '23:59',
+  }))
+
   const tasks = body.tasks === undefined
-    ? await prisma.task.findMany({ where: { userId } })
+    ? await prisma.task.findMany({
+        where: {
+          userId,
+          status: { not: 'completed' },
+          OR: [{ deadline: null }, { deadline: { gte: new Date() } }],
+        },
+      })
     : body.tasks
-  const availabilityRules = body.availabilityRules === undefined
-    ? await prisma.availabilityRule.findMany({ where: { userId } })
-    : body.availabilityRules
+
+  if (body.tasks === undefined) {
+    await prisma.task.deleteMany({
+      where: {
+        userId,
+        OR: [{ deadline: { lt: new Date() } }, { status: 'completed' }],
+      },
+    })
+  }
+
+  const classes = await prisma.weeklyClass.findMany({
+    where: { userId },
+    orderBy: [{ day: 'asc' }, { start: 'asc' }],
+  })
+
   const fixedEvents = body.fixedEvents === undefined
-    ? await prisma.fixedEvent.findMany({ where: { userId } })
+    ? await prisma.fixedEvent.findMany({
+        where: { userId, end: { gte: new Date() } },
+        orderBy: { start: 'asc' },
+      })
     : body.fixedEvents
+
+  if (body.fixedEvents === undefined) {
+    await prisma.fixedEvent.deleteMany({
+      where: { userId, end: { lt: new Date() } },
+    })
+  }
+
+  const weekStartDate = new Date(weekStart ?? new Date().toISOString())
+  const weekBase = Number.isNaN(weekStartDate.getTime()) ? new Date() : weekStartDate
+  weekBase.setHours(0, 0, 0, 0)
+
+  const classEvents = classes.map((classItem) => {
+    const [startHour, startMinute] = classItem.start.split(':').map((value) => Number(value))
+    const [endHour, endMinute] = classItem.end.split(':').map((value) => Number(value))
+    const dayDate = new Date(weekBase)
+    dayDate.setDate(dayDate.getDate() + classItem.day)
+    const start = new Date(dayDate)
+    start.setHours(startHour, startMinute, 0, 0)
+    const end = new Date(dayDate)
+    end.setHours(endHour, endMinute, 0, 0)
+    return {
+      title: classItem.title,
+      start: start.toISOString(),
+      end: end.toISOString(),
+    }
+  })
+
+  const availabilityRules = body.availabilityRules ?? defaultAvailabilityRules
 
   return {
     tasks: normalizeTasks(tasks),
@@ -70,11 +127,14 @@ async function resolvePlanInputs(userId, body) {
       start: rule.start,
       end: rule.end,
     })),
-    fixedEvents: fixedEvents.map((event) => ({
-      title: event.title ?? undefined,
-      start: event.start instanceof Date ? event.start.toISOString() : event.start,
-      end: event.end instanceof Date ? event.end.toISOString() : event.end,
-    })),
+    fixedEvents: [
+      ...fixedEvents.map((event) => ({
+        title: event.title ?? undefined,
+        start: event.start instanceof Date ? event.start.toISOString() : event.start,
+        end: event.end instanceof Date ? event.end.toISOString() : event.end,
+      })),
+      ...classEvents,
+    ],
   }
 }
 
@@ -94,7 +154,7 @@ router.post('/generate', requireAuth, async (req, res) => {
     return res.status(401).json({ error: 'Not authenticated' })
   }
 
-  const inputs = await resolvePlanInputs(userId, parsed.data)
+  const inputs = await resolvePlanInputs(userId, parsed.data, weekStart)
   const plan = generatePlan({
     weekStart,
     tasks: inputs.tasks,
@@ -149,7 +209,7 @@ router.post('/reoptimize', requireAuth, async (req, res) => {
     return res.status(401).json({ error: 'Not authenticated' })
   }
 
-  const inputs = await resolvePlanInputs(userId, parsed.data)
+  const inputs = await resolvePlanInputs(userId, parsed.data, weekStart)
   const plan = reoptimizePlan({
     weekStart,
     tasks: inputs.tasks,

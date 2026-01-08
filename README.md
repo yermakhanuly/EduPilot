@@ -28,13 +28,14 @@ Gamified study tracker with deterministic scheduling, Strict Mode focus UI, Canv
 ## Key Endpoints (API)
 - Auth: `POST /auth/signup`, `POST /auth/login`, `POST /auth/logout`, `GET /auth/me`
 - Tasks: `GET /tasks`, `POST /tasks`, `PATCH /tasks/:id`, `DELETE /tasks/:id`
-- Availability: `GET /availability`, `POST /availability`, `DELETE /availability/:id`
+- Weekly classes: `GET /classes`, `POST /classes`, `DELETE /classes/:id`
 - Events: `GET /events`, `POST /events`, `DELETE /events/:id`
 - Planner: `POST /plan/generate?weekStart=YYYY-MM-DD`, `POST /plan/reoptimize`
 - Planner blocks: `GET /plan/blocks?weekStart=YYYY-MM-DD`
 - Sessions/XP: `POST /sessions/start`, `POST /sessions/finish`, `GET /stats/weekly`, `GET /stats/overview`
 - Rewards: `GET /rewards`
 - Assistant: `POST /assistant/ask`
+- Canvas: `POST /canvas/connect`, `POST /canvas/sync`, `POST /canvas/webhook` (for webhooks)
 - Canvas: `POST /canvas/connect`, `GET /canvas/courses`, `GET /canvas/week`
 
 ## Notes

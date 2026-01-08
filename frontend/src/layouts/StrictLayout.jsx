@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Outlet, useNavigate } from 'react-router-dom'
 import { useStrictStore } from '../store/strictStore'
+import { usePageTitle } from '../hooks/usePageTitle'
 
 function formatTime(ms) {
   const totalSeconds = Math.max(0, Math.floor(ms / 1000))
@@ -10,6 +11,7 @@ function formatTime(ms) {
 }
 
 export function StrictLayout() {
+  usePageTitle()
   const navigate = useNavigate()
   const { active, mode, endsAt, exit } = useStrictStore()
   const [now, setNow] = useState(Date.now())

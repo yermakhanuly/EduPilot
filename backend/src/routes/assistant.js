@@ -10,11 +10,11 @@ const askSchema = z.object({
   question: z.string().min(1),
 })
 
-function formatAvailability(rules) {
-  if (!rules.length) return 'No availability rules set.'
-  const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-  return rules
-    .map((rule) => `${dayNames[rule.day]} ${rule.start}-${rule.end}`)
+function formatClasses(classes) {
+  if (!classes.length) return 'No weekly classes set.'
+  const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+  return classes
+    .map((classItem) => `${dayNames[classItem.day]} ${classItem.start}-${classItem.end} ${classItem.title}`)
     .join(', ')
 }
 
@@ -33,10 +33,28 @@ router.post('/ask', requireAuth, async (req, res) => {
     return res.status(401).json({ error: 'Not authenticated' })
   }
 
-  const [tasks, rules, events, stats, blocks] = await Promise.all([
-    prisma.task.findMany({ where: { userId }, orderBy: { deadline: 'asc' } }),
-    prisma.availabilityRule.findMany({ where: { userId }, orderBy: [{ day: 'asc' }, { start: 'asc' }] }),
-    prisma.fixedEvent.findMany({ where: { userId }, orderBy: { start: 'asc' } }),
+  await prisma.task.deleteMany({
+    where: {
+      userId,
+      OR: [{ deadline: { lt: new Date() } }, { status: 'completed' }],
+    },
+  })
+
+  await prisma.fixedEvent.deleteMany({
+    where: { userId, end: { lt: new Date() } },
+  })
+
+  const [tasks, classes, events, stats, blocks] = await Promise.all([
+    prisma.task.findMany({
+      where: {
+        userId,
+        status: { not: 'completed' },
+        OR: [{ deadline: null }, { deadline: { gte: new Date() } }],
+      },
+      orderBy: { deadline: 'asc' },
+    }),
+    prisma.weeklyClass.findMany({ where: { userId }, orderBy: [{ day: 'asc' }, { start: 'asc' }] }),
+    prisma.fixedEvent.findMany({ where: { userId, end: { gte: new Date() } }, orderBy: { start: 'asc' } }),
     prisma.userStats.findUnique({ where: { userId } }),
     prisma.studyBlock.findMany({
       where: { userId, start: { gte: new Date() } },
@@ -54,7 +72,14 @@ router.post('/ask', requireAuth, async (req, res) => {
       priority: task.priority,
       status: task.status,
     })),
-    availability: formatAvailability(rules),
+    weeklyClasses: classes.map((classItem) => ({
+      title: classItem.title,
+      day: classItem.day,
+      start: classItem.start,
+      end: classItem.end,
+      location: classItem.location ?? null,
+    })),
+    weeklyClassSummary: formatClasses(classes),
     fixedEvents: events.map((event) => ({
       title: event.title,
       type: event.type,
@@ -77,11 +102,11 @@ router.post('/ask', requireAuth, async (req, res) => {
     })),
   }
 
-  const hasData = tasks.length > 0 || rules.length > 0 || events.length > 0 || blocks.length > 0
+  const hasData = tasks.length > 0 || classes.length > 0 || events.length > 0 || blocks.length > 0
   if (!hasData) {
     return res.json({
       answer:
-        'No study data is available yet. Add tasks, availability rules, or exams and try again so I can give personalized guidance.',
+        'No study data is available yet. Add tasks, weekly classes, or exams and try again so I can give personalized guidance.',
     })
   }
 

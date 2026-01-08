@@ -20,7 +20,7 @@ model User {
   rewards          Reward[]
   stats            UserStats?
   integrationCanvas IntegrationCanvas?
-  availabilityRules AvailabilityRule[]
+  weeklyClasses    WeeklyClass[]
   fixedEvents      FixedEvent[]
 }
 
@@ -33,6 +33,8 @@ model Task {
   priority       Int            @default(1)
   remainingHours Int            @default(0)
   status         String         @default("pending")
+  source         String         @default("manual")
+  externalId     String?
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
   user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -94,21 +96,13 @@ model UserStats {
 model IntegrationCanvas {
   id             String   @id @default(uuid())
   userId         String   @unique
-  tokenEncrypted String
+  tokenEncrypted String?
   canvasBaseUrl  String
+  canvasUserId   String?
+  lastImportedAt DateTime?
   createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
   user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-}
-
-model AvailabilityRule {
-  id        String   @id @default(uuid())
-  userId    String
-  day       Int
-  start     String
-  end       String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model FixedEvent {
@@ -119,6 +113,23 @@ model FixedEvent {
   start     DateTime
   end       DateTime
   notes     String?
+  source    String   @default("manual")
+  externalId String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model WeeklyClass {
+  id        String   @id @default(uuid())
+  userId    String
+  title     String
+  day       Int
+  start     String
+  end       String
+  location  String?
+  source    String   @default("manual")
+  externalId String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)

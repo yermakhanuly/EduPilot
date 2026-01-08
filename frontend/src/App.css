@@ -767,6 +767,112 @@
   margin-top: 6px;
 }
 
+.form-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 12px;
+  margin-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.form-section:first-child {
+  border-top: none;
+  padding-top: 0;
+  margin-top: 0;
+}
+
+.schedule {
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.02);
+  margin-top: 16px;
+  overflow-x: auto;
+}
+
+.timetable-panel {
+  width: 100%;
+}
+
+.schedule-header {
+  display: grid;
+  grid-template-columns: 90px repeat(7, 1fr);
+  column-gap: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border-bottom: 1px solid var(--border);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-size: 11px;
+  color: var(--muted);
+  min-width: 1020px;
+}
+
+.schedule-time-label,
+.schedule-day-label {
+  padding: 10px 12px;
+}
+
+.schedule-body {
+  display: grid;
+  grid-template-columns: 90px 1fr;
+  column-gap: 12px;
+  min-width: 1020px;
+}
+
+.schedule-times {
+  display: grid;
+  grid-template-rows: repeat(16, 48px);
+  border-right: 1px solid var(--border);
+}
+
+.schedule-time {
+  padding: 10px 12px;
+  font-size: 12px;
+  color: var(--muted);
+  border-top: 1px solid var(--border);
+}
+
+.schedule-days {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(120px, 1fr));
+  column-gap: 12px;
+}
+
+.schedule-day {
+  position: relative;
+  display: grid;
+  grid-template-rows: repeat(16, 48px);
+}
+
+.schedule-slot {
+  border-top: 1px solid var(--border);
+}
+
+.schedule-block {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(126, 224, 255, 0.18), rgba(196, 255, 97, 0.2));
+  border: 1px solid rgba(126, 224, 255, 0.4);
+  padding: 6px 8px;
+  color: var(--text);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+}
+
+.schedule-block-title {
+  font-weight: 700;
+  font-size: 12px;
+}
+
+.schedule-block-time {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
 .route-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));

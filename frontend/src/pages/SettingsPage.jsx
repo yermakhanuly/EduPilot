@@ -1,7 +1,13 @@
+import { useNavigate } from 'react-router-dom'
+import { useQueryClient } from '@tanstack/react-query'
 import { useAuthStore } from '../store/authStore'
+import { authApi } from '../api/client'
 
 export function SettingsPage() {
   const user = useAuthStore((state) => state.user)
+  const logout = useAuthStore((state) => state.logout)
+  const navigate = useNavigate()
+  const queryClient = useQueryClient()
   return (
     <div className="page">
       <div className="page-head">
@@ -46,6 +52,31 @@ export function SettingsPage() {
             <span className="pill pill-quiet">2 integrations</span>
           </li>
         </ul>
+      </section>
+      <section className="panel wide">
+        <div className="section-head">
+          <div>
+            <p className="label">Account</p>
+            <h3>Session</h3>
+          </div>
+          <button
+            className="ghost small"
+            type="button"
+            onClick={async () => {
+              try {
+                await authApi.logout()
+              } catch (error) {
+                console.error('Logout failed', error)
+              }
+              logout()
+              queryClient.clear()
+              navigate('/login')
+            }}
+          >
+            Log out
+          </button>
+        </div>
+        <p className="muted">Logging out clears your session on this device.</p>
       </section>
     </div>
   )

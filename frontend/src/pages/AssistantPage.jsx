@@ -21,7 +21,7 @@ export function AssistantPage() {
           <p className="label">AI helper</p>
           <h2>Ask EduPilot</h2>
           <p className="muted">
-            Uses your tasks, availability, and exams to answer questions about your plan.
+            Uses your tasks, weekly classes, and exams to answer questions about your plan.
           </p>
         </div>
         <span className="pill pill-accent">OpenAI</span>

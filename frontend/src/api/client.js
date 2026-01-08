@@ -60,6 +60,11 @@ export const canvasApi = {
       body: JSON.stringify(payload),
     })
   },
+  sync() {
+    return request('/canvas/sync', {
+      method: 'POST',
+    })
+  },
   getCourses() {
     return request('/canvas/courses')
   },
@@ -88,18 +93,18 @@ export const taskApi = {
   },
 }
 
-export const availabilityApi = {
+export const classApi = {
   list() {
-    return request('/availability')
+    return request('/classes')
   },
   create(payload) {
-    return request('/availability', {
+    return request('/classes', {
       method: 'POST',
       body: JSON.stringify(payload),
     })
   },
   remove(id) {
-    return request(`/availability/${id}`, {
+    return request(`/classes/${id}`, {
       method: 'DELETE',
     })
   },

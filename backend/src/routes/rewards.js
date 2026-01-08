@@ -12,7 +12,7 @@ router.get('/', requireAuth, async (req, res) => {
 
   const rewards = await prisma.reward.findMany({
     where: { userId },
-    orderBy: { createdAt: 'desc' },
+    orderBy: [{ claimedAt: 'desc' }, { id: 'desc' }],
   })
 
   return res.json({ rewards })

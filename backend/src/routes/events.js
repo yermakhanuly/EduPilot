@@ -26,6 +26,10 @@ router.get('/', requireAuth, async (req, res) => {
     return res.status(401).json({ error: 'Not authenticated' })
   }
 
+  await prisma.fixedEvent.deleteMany({
+    where: { userId, end: { lt: new Date() } },
+  })
+
   const events = await prisma.fixedEvent.findMany({
     where: { userId },
     orderBy: { start: 'asc' },
