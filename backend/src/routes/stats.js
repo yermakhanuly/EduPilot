@@ -45,7 +45,10 @@ router.get('/overview', requireAuth, async (req, res) => {
   await prisma.task.deleteMany({
     where: {
       userId,
-      OR: [{ deadline: { lt: new Date() } }, { status: 'completed' }],
+      OR: [
+        { deadline: { lt: new Date() } },
+        { status: 'completed', source: { not: 'canvas' } },
+      ],
     },
   })
 
@@ -65,6 +68,39 @@ router.get('/overview', requireAuth, async (req, res) => {
     level: levelInfo,
     spotlightTasks: tasks,
   })
+})
+
+router.get('/leaderboard', requireAuth, async (req, res) => {
+  if (!req.user?.id) {
+    return res.status(401).json({ error: 'Not authenticated' })
+  }
+
+  const rawLimit = Number.parseInt(req.query.limit?.toString() ?? '10', 10)
+  const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 50) : 10
+
+  const entries = await prisma.userStats.findMany({
+    orderBy: [{ totalXp: 'desc' }, { weeklyXp: 'desc' }, { id: 'asc' }],
+    take: limit,
+    include: {
+      user: {
+        select: {
+          id: true,
+          name: true,
+        },
+      },
+    },
+  })
+
+  const leaderboard = entries.map((entry, index) => ({
+    rank: index + 1,
+    userId: entry.userId,
+    name: entry.user?.name ?? 'Pilot',
+    totalXp: entry.totalXp,
+    weeklyXp: entry.weeklyXp,
+    streak: entry.streak,
+  }))
+
+  return res.json({ leaderboard })
 })
 
 export default router

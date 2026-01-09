@@ -150,6 +150,19 @@ function mapPlannerItem(item) {
 }
 
 export async function importCanvasData(userId, { start, end }) {
+  const completedCanvasTasks = await prisma.task.findMany({
+    where: {
+      userId,
+      source: 'canvas',
+      status: 'completed',
+      externalId: { not: null },
+    },
+    select: { externalId: true },
+  })
+  const completedExternalIds = new Set(
+    completedCanvasTasks.map((task) => task.externalId).filter(Boolean),
+  )
+
   const plannerItems = await fetchCanvasWeek(userId, start, end)
   if (!Array.isArray(plannerItems)) {
     throw new Error('Canvas response did not return planner items')
@@ -158,6 +171,7 @@ export async function importCanvasData(userId, { start, end }) {
   const tasks = []
   const events = []
   const classes = []
+  const now = new Date()
 
   for (const item of plannerItems) {
     const mapped = mapPlannerItem(item)
@@ -165,6 +179,8 @@ export async function importCanvasData(userId, { start, end }) {
       if (!mapped.deadline) continue
       const deadlineDate = new Date(mapped.deadline)
       if (Number.isNaN(deadlineDate.getTime())) continue
+      if (deadlineDate < now) continue
+      if (mapped.externalId && completedExternalIds.has(mapped.externalId)) continue
       tasks.push({
         title: mapped.title,
         deadline: deadlineDate,
@@ -178,7 +194,11 @@ export async function importCanvasData(userId, { start, end }) {
     }
 
     const startAt = mapped.start ? new Date(mapped.start) : null
-    const endAt = mapped.end ? new Date(mapped.end) : startAt ? new Date(startAt.getTime() + 60 * 60 * 1000) : null
+    const endAt = mapped.end
+      ? new Date(mapped.end)
+      : startAt
+        ? new Date(startAt.getTime() + 60 * 60 * 1000)
+        : null
     if (!startAt || !endAt || Number.isNaN(startAt.getTime()) || Number.isNaN(endAt.getTime())) {
       continue
     }
@@ -197,7 +217,7 @@ export async function importCanvasData(userId, { start, end }) {
           externalId: mapped.externalId || null,
         })
       }
-    } else {
+    } else if (endAt >= now) {
       events.push({
         title: mapped.title,
         type: 'exam',
@@ -211,7 +231,13 @@ export async function importCanvasData(userId, { start, end }) {
   }
 
   const result = await prisma.$transaction(async (tx) => {
-    await tx.task.deleteMany({ where: { userId, source: 'canvas' } })
+    await tx.task.deleteMany({
+      where: {
+        userId,
+        source: 'canvas',
+        status: { not: 'completed' },
+      },
+    })
     await tx.fixedEvent.deleteMany({ where: { userId, source: 'canvas' } })
     await tx.weeklyClass.deleteMany({ where: { userId, source: 'canvas' } })
 

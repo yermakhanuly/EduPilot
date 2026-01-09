@@ -1,7 +1,8 @@
 const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:4000'
+const authSkipRefresh = new Set(['/auth/login', '/auth/signup', '/auth/refresh'])
 
-async function request(path, options) {
-  const response = await fetch(`${API_BASE}${path}`, {
+async function rawRequest(path, options) {
+  return fetch(`${API_BASE}${path}`, {
     credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
@@ -9,6 +10,17 @@ async function request(path, options) {
     },
     ...options,
   })
+}
+
+async function request(path, options, retryAuth = true) {
+  const response = await rawRequest(path, options)
+
+  if (response.status === 401 && retryAuth && !authSkipRefresh.has(path)) {
+    const refreshResponse = await rawRequest('/auth/refresh', { method: 'POST' })
+    if (refreshResponse.ok) {
+      return request(path, options, false)
+    }
+  }
 
   if (!response.ok) {
     const message = await response.text()
@@ -133,6 +145,25 @@ export const statsApi = {
   },
   weekly() {
     return request('/stats/weekly')
+  },
+  leaderboard(limit) {
+    const query = Number.isFinite(limit) ? `?limit=${limit}` : ''
+    return request(`/stats/leaderboard${query}`)
+  },
+}
+
+export const sessionsApi = {
+  start(payload) {
+    return request('/sessions/start', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  },
+  finish(payload) {
+    return request('/sessions/finish', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
   },
 }
 

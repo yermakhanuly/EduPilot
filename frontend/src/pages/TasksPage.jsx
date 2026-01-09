@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { taskApi } from '../api/client'
+import { formatTimeUntil } from '../utils/time'
 
 const defaultForm = {
   title: '',
@@ -8,6 +9,7 @@ const defaultForm = {
   deadline: '',
   remainingHours: '',
   priority: '3',
+  difficulty: 'medium',
 }
 
 export function TasksPage() {
@@ -29,6 +31,15 @@ export function TasksPage() {
     },
   })
 
+  const updateMutation = useMutation({
+    mutationFn: ({ id, payload }) => taskApi.update(id, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tasks'] })
+      queryClient.invalidateQueries({ queryKey: ['stats-overview'] })
+      queryClient.invalidateQueries({ queryKey: ['stats-weekly'] })
+    },
+  })
+
   const deleteMutation = useMutation({
     mutationFn: (id) => taskApi.remove(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['tasks'] }),
@@ -42,6 +53,7 @@ export function TasksPage() {
       deadline: form.deadline || null,
       remainingHours: form.remainingHours ? Number(form.remainingHours) : 0,
       priority: Number(form.priority),
+      difficulty: form.difficulty,
     })
   }
 
@@ -81,14 +93,23 @@ export function TasksPage() {
                     <p className="session-title">{task.title}</p>
                     {task.description ? <p className="muted">{task.description}</p> : null}
                     <span className="pill pill-accent">Priority {task.priority}</span>
+                    <span className="pill pill-quiet">
+                      {task.difficulty ? `Difficulty ${task.difficulty}` : 'Difficulty medium'}
+                    </span>
                   </div>
                   <div className="quest-meta">
                     <span className="pill pill-quiet">
-                      {task.deadline
-                        ? new Date(task.deadline).toLocaleString()
-                        : 'No deadline'}
+                      {formatTimeUntil(task.deadline)}
                     </span>
-                    <span className="pill pill-quiet">{task.remainingHours}h left</span>
+                    <span className="pill pill-quiet">Est. {task.remainingHours}h</span>
+                    <button
+                      className="primary small"
+                      type="button"
+                      onClick={() => updateMutation.mutate({ id: task.id, payload: { status: 'completed' } })}
+                      disabled={updateMutation.isPending}
+                    >
+                      Done
+                    </button>
                     <button
                       className="ghost small"
                       type="button"
@@ -139,7 +160,7 @@ export function TasksPage() {
             </label>
             <div className="form-row">
               <label className="form-field">
-                <span>Remaining hours</span>
+                <span>Estimated hours</span>
                 <input
                   type="number"
                   min="0"
@@ -159,6 +180,17 @@ export function TasksPage() {
                   <option value="3">3 - Medium</option>
                   <option value="4">4</option>
                   <option value="5">5 - High</option>
+                </select>
+              </label>
+              <label className="form-field">
+                <span>Difficulty</span>
+                <select
+                  value={form.difficulty}
+                  onChange={(event) => setForm({ ...form, difficulty: event.target.value })}
+                >
+                  <option value="easy">Easy</option>
+                  <option value="medium">Medium</option>
+                  <option value="hard">Hard</option>
                 </select>
               </label>
             </div>

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { planApi, rewardsApi } from '../api/client'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { planApi, rewardsApi, sessionsApi } from '../api/client'
 import { useStrictStore } from '../store/strictStore'
 
 function formatTime(ms) {
@@ -21,8 +21,12 @@ function startOfWeekISO() {
 }
 
 export function StrictModePage() {
-  const { active, mode, endsAt, start, beginBreak } = useStrictStore()
+  const { active, mode, endsAt, start, beginBreak, focusMinutes, breakMinutes, setFocusMinutes, setBreakMinutes } =
+    useStrictStore()
+  const queryClient = useQueryClient()
   const [now, setNow] = useState(Date.now())
+  const [sessionId, setSessionId] = useState(null)
+  const [finishRequested, setFinishRequested] = useState(false)
   const weekStart = useMemo(() => startOfWeekISO(), [])
 
   const { data: blocksData } = useQuery({
@@ -37,12 +41,48 @@ export function StrictModePage() {
   const blocks = blocksData?.blocks ?? []
   const rewards = rewardsData?.rewards ?? []
 
+  const startMutation = useMutation({
+    mutationFn: (payload) => sessionsApi.start(payload),
+    onSuccess: (data) => {
+      setSessionId(data?.session?.id ?? null)
+    },
+  })
+
+  const finishMutation = useMutation({
+    mutationFn: (payload) => sessionsApi.finish(payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['stats-overview'] })
+      queryClient.invalidateQueries({ queryKey: ['stats-weekly'] })
+      queryClient.invalidateQueries({ queryKey: ['rewards'] })
+    },
+  })
+
   useEffect(() => {
     const interval = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(interval)
   }, [])
 
   const remaining = endsAt ? Math.max(0, endsAt - now) : 0
+
+  useEffect(() => {
+    if (!active || mode !== 'focus' || !sessionId) return
+    if (remaining > 0 || finishRequested) return
+    setFinishRequested(true)
+    finishMutation.mutate(
+      {
+        sessionId,
+        focusedMinutes: focusMinutes,
+        completed: true,
+        strictMode: true,
+      },
+      {
+        onSettled: () => {
+          setSessionId(null)
+          setFinishRequested(false)
+        },
+      },
+    )
+  }, [active, mode, sessionId, remaining, finishRequested, focusMinutes, finishMutation])
 
   return (
     <div className="panel wide strict-panel">
@@ -53,13 +93,63 @@ export function StrictModePage() {
           <p className="muted">Timer, focus, and XP earn loop.</p>
         </div>
         <div className="streak-row">
-          <button className="primary" onClick={() => start(45)}>
-            Start 45m focus
+          <button
+            className="primary"
+            onClick={() => {
+              start(focusMinutes)
+              setFinishRequested(false)
+              startMutation.mutate({ mode: 'focus' })
+            }}
+            disabled={startMutation.isPending}
+          >
+            Start {focusMinutes}m focus
           </button>
-          <button className="ghost" onClick={() => beginBreak(10)}>
-            10m break
+          <button
+            className="ghost"
+            onClick={() => {
+              if (sessionId && active && mode === 'focus') {
+                const elapsedMinutes = Math.max(
+                  0,
+                  Math.round((focusMinutes * 60 * 1000 - remaining) / 60000),
+                )
+                finishMutation.mutate({
+                  sessionId,
+                  focusedMinutes: elapsedMinutes,
+                  completed: false,
+                  strictMode: true,
+                })
+                setSessionId(null)
+                setFinishRequested(false)
+              }
+              beginBreak(breakMinutes)
+            }}
+            disabled={finishMutation.isPending}
+          >
+            {breakMinutes}m break
           </button>
         </div>
+      </div>
+      <div className="form-row strict-settings">
+        <label className="form-field">
+          <span>Focus minutes</span>
+          <input
+            type="number"
+            min="5"
+            max="240"
+            value={focusMinutes}
+            onChange={(event) => setFocusMinutes(event.target.value)}
+          />
+        </label>
+        <label className="form-field">
+          <span>Break minutes</span>
+          <input
+            type="number"
+            min="5"
+            max="240"
+            value={breakMinutes}
+            onChange={(event) => setBreakMinutes(event.target.value)}
+          />
+        </label>
       </div>
       <div className="timer strict">
         <div className="timer-dial large">{active ? formatTime(remaining) : '00:00'}</div>
@@ -96,10 +186,10 @@ export function StrictModePage() {
                       <p className="muted">{session.status}</p>
                     </div>
                   </div>
-                  <div className="session-info">
-                    <span className="pill pill-accent">{session.source}</span>
-                    <span className="pill pill-quiet">45m cadence</span>
-                  </div>
+                <div className="session-info">
+                  <span className="pill pill-accent">{session.source}</span>
+                  <span className="pill pill-quiet">Focus {focusMinutes}m cadence</span>
+                </div>
                 </div>
               ))}
             </div>

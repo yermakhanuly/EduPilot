@@ -1,7 +1,9 @@
 import { Router } from 'express'
+import jwt from 'jsonwebtoken'
 import bcrypt from 'bcryptjs'
 import { z } from 'zod'
 import { prisma } from '../config/prisma.js'
+import { env } from '../config/env.js'
 import { clearAuthCookies, issueTokens, requireAuth } from '../middleware/requireAuth.js'
 
 const router = Router()
@@ -81,6 +83,40 @@ router.post('/login', async (req, res) => {
 router.post('/logout', (_req, res) => {
   clearAuthCookies(res)
   return res.json({ success: true })
+})
+
+router.post('/refresh', async (req, res) => {
+  const refreshToken = req.cookies?.refreshToken
+  if (!refreshToken) {
+    return res.status(401).json({ error: 'Not authenticated' })
+  }
+
+  try {
+    const payload = jwt.verify(refreshToken, env.JWT_REFRESH_SECRET)
+    const userId = payload?.userId
+    if (!userId) {
+      clearAuthCookies(res)
+      return res.status(401).json({ error: 'Not authenticated' })
+    }
+
+    const user = await prisma.user.findUnique({ where: { id: userId } })
+    if (!user) {
+      clearAuthCookies(res)
+      return res.status(401).json({ error: 'Not authenticated' })
+    }
+
+    issueTokens(res, { id: user.id, email: user.email })
+    return res.json({
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+      },
+    })
+  } catch {
+    clearAuthCookies(res)
+    return res.status(401).json({ error: 'Not authenticated' })
+  }
 })
 
 router.get('/me', requireAuth, async (req, res) => {

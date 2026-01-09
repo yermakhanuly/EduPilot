@@ -2,7 +2,7 @@ import { Router } from 'express'
 import { z } from 'zod'
 import { prisma } from '../config/prisma.js'
 import { requireAuth } from '../middleware/requireAuth.js'
-import { levelFromXp, xpForFocusedMinutes } from '../services/xp.js'
+import { applyStreakBonus, computeSessionBaseXp, levelFromXp } from '../services/xp.js'
 
 const router = Router()
 
@@ -16,6 +16,7 @@ const finishSchema = z.object({
   sessionId: z.string().uuid(),
   focusedMinutes: z.number().nonnegative(),
   completed: z.boolean().default(true),
+  strictMode: z.boolean().optional().default(false),
 })
 
 router.post('/start', requireAuth, async (req, res) => {
@@ -53,7 +54,7 @@ router.post('/finish', requireAuth, async (req, res) => {
     return res.status(400).json({ error: 'Invalid payload', issues: parsed.error.flatten() })
   }
 
-  const { sessionId, focusedMinutes, completed } = parsed.data
+  const { sessionId, focusedMinutes, completed, strictMode } = parsed.data
   const userId = req.user?.id
   if (!userId) {
     return res.status(401).json({ error: 'Not authenticated' })
@@ -61,7 +62,7 @@ router.post('/finish', requireAuth, async (req, res) => {
 
   const session = await prisma.studySession.findFirst({
     where: { id: sessionId, userId },
-    include: { user: true },
+    include: { user: true, task: true },
   })
 
   if (!session) {
@@ -69,8 +70,44 @@ router.post('/finish', requireAuth, async (req, res) => {
   }
 
   const existingStats = await prisma.userStats.findUnique({ where: { userId } })
-  const xpEarned = xpForFocusedMinutes(focusedMinutes, existingStats?.streak ?? 0, completed)
-  const newStreak = completed ? (existingStats?.streak ?? 0) + 1 : 0
+  const now = new Date()
+  const isValidSession = completed && focusedMinutes >= 10
+  const baseSessionXp = isValidSession
+    ? computeSessionBaseXp({
+        minutes: focusedMinutes,
+        difficulty: session.task?.difficulty,
+        deadline: session.task?.deadline,
+        strictMode,
+      })
+    : 0
+
+  const dailyDate = existingStats?.dailyDate ? new Date(existingStats.dailyDate) : null
+  const todayKey = now.toISOString().split('T')[0]
+  const statsDayKey = dailyDate ? dailyDate.toISOString().split('T')[0] : null
+  const isNewDay = statsDayKey !== todayKey
+  const dailyBaseBefore = isNewDay ? 0 : existingStats?.dailyBaseXp ?? 0
+  const dailyXpBefore = isNewDay ? 0 : existingStats?.dailyXp ?? 0
+
+  let newStreak = existingStats?.streak ?? 0
+  if (isValidSession) {
+    if (!existingStats?.lastSessionAt) {
+      newStreak = 1
+    } else {
+      const lastKey = new Date(existingStats.lastSessionAt).toISOString().split('T')[0]
+      if (lastKey === todayKey) {
+        newStreak = existingStats?.streak ?? 0
+      } else {
+        const yesterday = new Date(now)
+        yesterday.setDate(now.getDate() - 1)
+        const yesterdayKey = yesterday.toISOString().split('T')[0]
+        newStreak = lastKey === yesterdayKey ? (existingStats?.streak ?? 0) + 1 : 1
+      }
+    }
+  }
+
+  const dailyBaseXp = dailyBaseBefore + baseSessionXp
+  const dailyXp = isValidSession ? applyStreakBonus(dailyBaseXp, newStreak) : dailyXpBefore
+  const xpEarned = Math.max(0, dailyXp - dailyXpBefore)
   const totalXp = (existingStats?.totalXp ?? 0) + xpEarned
   const weeklyXp = (existingStats?.weeklyXp ?? 0) + xpEarned
   const { level } = levelFromXp(totalXp)
@@ -91,7 +128,10 @@ router.post('/finish', requireAuth, async (req, res) => {
         totalXp,
         weeklyXp,
         streak: newStreak,
-        lastSessionAt: new Date(),
+        dailyBaseXp: isValidSession ? dailyBaseXp : existingStats?.dailyBaseXp ?? 0,
+        dailyXp: isValidSession ? dailyXp : existingStats?.dailyXp ?? 0,
+        dailyDate: isValidSession ? now : existingStats?.dailyDate ?? null,
+        lastSessionAt: isValidSession ? now : existingStats?.lastSessionAt ?? null,
         level,
       },
       create: {
@@ -99,7 +139,10 @@ router.post('/finish', requireAuth, async (req, res) => {
         totalXp,
         weeklyXp,
         streak: newStreak,
-        lastSessionAt: new Date(),
+        dailyBaseXp: dailyBaseXp,
+        dailyXp: dailyXp,
+        dailyDate: isValidSession ? now : null,
+        lastSessionAt: isValidSession ? now : null,
         level,
       },
     }),

@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { classApi, eventApi, planApi, taskApi } from '../api/client'
+import { formatTimeUntil } from '../utils/time'
 
 const dayOptions = [
   { value: '0', label: 'Mon' },
@@ -34,6 +35,7 @@ const defaultTask = {
   deadline: '',
   remainingHours: '',
   priority: '3',
+  difficulty: 'medium',
 }
 
 const scheduleStartMinutes = 8 * 60
@@ -148,6 +150,15 @@ export function PlanPage() {
     },
   })
 
+  const taskUpdate = useMutation({
+    mutationFn: ({ id, payload }) => taskApi.update(id, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tasks'] })
+      queryClient.invalidateQueries({ queryKey: ['stats-overview'] })
+      queryClient.invalidateQueries({ queryKey: ['stats-weekly'] })
+    },
+  })
+
   const taskDelete = useMutation({
     mutationFn: (id) => taskApi.remove(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['tasks'] }),
@@ -184,6 +195,7 @@ export function PlanPage() {
       deadline: taskForm.deadline || null,
       remainingHours: taskForm.remainingHours ? Number(taskForm.remainingHours) : 0,
       priority: Number(taskForm.priority),
+      difficulty: taskForm.difficulty,
     })
   }
 
@@ -540,7 +552,7 @@ export function PlanPage() {
                   />
                 </label>
                 <label className="form-field">
-                  <span>Hours left</span>
+                  <span>Estimated hours</span>
                   <input
                     type="number"
                     min="0"
@@ -549,20 +561,31 @@ export function PlanPage() {
                     onChange={(event) => setTaskForm({ ...taskForm, remainingHours: event.target.value })}
                   />
                 </label>
-                <label className="form-field">
-                  <span>Priority</span>
-                  <select
-                    value={taskForm.priority}
-                    onChange={(event) => setTaskForm({ ...taskForm, priority: event.target.value })}
-                  >
-                    <option value="1">1 - Low</option>
-                    <option value="2">2</option>
-                    <option value="3">3 - Medium</option>
-                    <option value="4">4</option>
-                    <option value="5">5 - High</option>
-                  </select>
-                </label>
-              </div>
+              <label className="form-field">
+                <span>Priority</span>
+                <select
+                  value={taskForm.priority}
+                  onChange={(event) => setTaskForm({ ...taskForm, priority: event.target.value })}
+                >
+                  <option value="1">1 - Low</option>
+                  <option value="2">2</option>
+                  <option value="3">3 - Medium</option>
+                  <option value="4">4</option>
+                  <option value="5">5 - High</option>
+                </select>
+              </label>
+              <label className="form-field">
+                <span>Difficulty</span>
+                <select
+                  value={taskForm.difficulty}
+                  onChange={(event) => setTaskForm({ ...taskForm, difficulty: event.target.value })}
+                >
+                  <option value="easy">Easy</option>
+                  <option value="medium">Medium</option>
+                  <option value="hard">Hard</option>
+                </select>
+              </label>
+            </div>
               <button type="submit" className="ghost small" disabled={taskMutation.isPending}>
                 {taskMutation.isPending ? 'Saving...' : 'Add assignment'}
               </button>
@@ -586,17 +609,30 @@ export function PlanPage() {
                     <div>
                       <p className="session-title">{task.title}</p>
                       <p className="muted">
-                        {task.deadline ? new Date(task.deadline).toLocaleString() : 'No deadline'}
-                        {` · ${task.remainingHours}h left · Priority ${task.priority}`}
+                        {formatTimeUntil(task.deadline)}
+                        {` · Est. ${task.remainingHours}h · Priority ${task.priority}`}
+                        {` · ${task.difficulty ?? 'medium'} difficulty`}
                       </p>
                     </div>
-                    <button
-                      className="ghost small"
-                      type="button"
-                      onClick={() => taskDelete.mutate(task.id)}
-                    >
-                      Remove
-                    </button>
+                    <div className="streak-row">
+                      <button
+                        className="primary small"
+                        type="button"
+                        onClick={() =>
+                          taskUpdate.mutate({ id: task.id, payload: { status: 'completed' } })
+                        }
+                        disabled={taskUpdate.isPending}
+                      >
+                        Done
+                      </button>
+                      <button
+                        className="ghost small"
+                        type="button"
+                        onClick={() => taskDelete.mutate(task.id)}
+                      >
+                        Remove
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>

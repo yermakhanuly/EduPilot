@@ -36,7 +36,10 @@ router.post('/ask', requireAuth, async (req, res) => {
   await prisma.task.deleteMany({
     where: {
       userId,
-      OR: [{ deadline: { lt: new Date() } }, { status: 'completed' }],
+      OR: [
+        { deadline: { lt: new Date() } },
+        { status: 'completed', source: { not: 'canvas' } },
+      ],
     },
   })
 

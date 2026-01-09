@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { planApi, statsApi } from '../api/client'
+import { formatTimeUntil } from '../utils/time'
 
 function startOfWeekISO() {
   const now = new Date()
@@ -14,8 +15,7 @@ function startOfWeekISO() {
 }
 
 function formatDeadline(task) {
-  if (!task?.deadline) return 'No deadlines yet'
-  return new Date(task.deadline).toLocaleString()
+  return formatTimeUntil(task?.deadline)
 }
 
 export function DashboardPage() {
@@ -183,9 +183,7 @@ export function DashboardPage() {
                     <span className="pill pill-accent">Priority {quest.priority}</span>
                   </div>
                   <div className="quest-meta">
-                    <span className="pill pill-quiet">
-                      {quest.deadline ? new Date(quest.deadline).toLocaleString() : 'No deadline'}
-                    </span>
+                    <span className="pill pill-quiet">{formatTimeUntil(quest.deadline)}</span>
                   </div>
                 </div>
               ))}

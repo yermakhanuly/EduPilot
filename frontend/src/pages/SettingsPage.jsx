@@ -2,10 +2,13 @@ import { useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { useAuthStore } from '../store/authStore'
 import { authApi } from '../api/client'
+import { useThemeStore } from '../store/themeStore'
 
 export function SettingsPage() {
   const user = useAuthStore((state) => state.user)
   const logout = useAuthStore((state) => state.logout)
+  const theme = useThemeStore((state) => state.theme)
+  const toggleTheme = useThemeStore((state) => state.toggleTheme)
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   return (
@@ -27,6 +30,24 @@ export function SettingsPage() {
           <button className="ghost small">Save</button>
         </div>
         <ul className="setting-list">
+          <li>
+            <div>
+              <p className="session-title">Theme</p>
+              <p className="muted">Switch between dark and light mode.</p>
+            </div>
+            <button
+              type="button"
+              className="theme-toggle"
+              data-theme={theme}
+              onClick={toggleTheme}
+              aria-pressed={theme === 'light'}
+            >
+              <span className="theme-toggle-track">
+                <span className="theme-toggle-thumb" />
+              </span>
+              <span>{theme === 'light' ? 'Light' : 'Dark'}</span>
+            </button>
+          </li>
           <li>
             <div>
               <p className="session-title">Notifications</p>

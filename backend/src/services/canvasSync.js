@@ -44,11 +44,15 @@ export function scheduleCanvasSync({ intervalMinutes, initialDelayMs = 15000 } =
   const intervalMs = intervalMinutes * 60 * 1000
 
   const run = async () => {
-    const result = await syncAllCanvasAccounts()
-    if (result?.skipped) return
-    console.log(
-      `Canvas auto-sync done. users=${result.users ?? 0} success=${result.success ?? 0} failure=${result.failure ?? 0}`,
-    )
+    try {
+      const result = await syncAllCanvasAccounts()
+      if (result?.skipped) return
+      console.log(
+        `Canvas auto-sync done. users=${result.users ?? 0} success=${result.success ?? 0} failure=${result.failure ?? 0}`,
+      )
+    } catch (error) {
+      console.error('Canvas auto-sync failed:', error)
+    }
   }
 
   const initialTimer = setTimeout(run, initialDelayMs)

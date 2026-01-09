@@ -75,7 +75,10 @@ async function resolvePlanInputs(userId, body, weekStart) {
     await prisma.task.deleteMany({
       where: {
         userId,
-        OR: [{ deadline: { lt: new Date() } }, { status: 'completed' }],
+        OR: [
+          { deadline: { lt: new Date() } },
+          { status: 'completed', source: { not: 'canvas' } },
+        ],
       },
     })
   }
