@@ -1085,6 +1085,33 @@
 }
 
 @media (max-width: 900px) {
+  .app-layout {
+    grid-template-columns: 1fr;
+    padding: 18px;
+  }
+
+  .sidebar {
+    position: relative;
+    height: auto;
+  }
+
+  .side-nav {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .topbar {
+    align-items: flex-start;
+  }
+
+  .topbar-title {
+    flex-wrap: wrap;
+  }
+
+  .sidebar-footer {
+    margin-top: 0;
+  }
+
   .panel.wide {
     grid-column: span 1;
   }
@@ -1110,6 +1137,18 @@
 }
 
 @media (max-width: 600px) {
+  .app-layout {
+    padding: 14px;
+  }
+
+  .sidebar {
+    border-radius: 16px;
+  }
+
+  .side-link {
+    padding: 8px 10px;
+  }
+
   .hero h1 {
     font-size: 34px;
   }
