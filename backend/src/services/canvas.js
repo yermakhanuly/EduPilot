@@ -46,7 +46,7 @@ export async function saveCanvasProfile(userId, profile) {
 
 export async function fetchCanvasResource(userId, path) {
   const { baseUrl, token } = await getCredentials(userId)
-  const url = `${baseUrl}${path}`
+  const url = path.startsWith('http') ? path : `${baseUrl}${path}`
 
   const response = await fetch(url, {
     headers: {
@@ -71,21 +71,75 @@ export async function fetchCanvasResource(userId, path) {
   }
 }
 
+function parseLinkHeader(header) {
+  if (!header) return {}
+  const links = {}
+  const parts = header.split(',')
+  for (const part of parts) {
+    const section = part.split(';').map((item) => item.trim())
+    if (section.length < 2) continue
+    const urlPart = section[0].replace(/<(.*)>/, '$1')
+    const relPart = section.find((item) => item.startsWith('rel='))
+    if (!relPart) continue
+    const rel = relPart.replace(/rel="?([^"]+)"?/, '$1')
+    links[rel] = urlPart
+  }
+  return links
+}
+
+async function fetchCanvasPaged(userId, path) {
+  const { baseUrl, token } = await getCredentials(userId)
+  const items = []
+  let nextUrl = path.startsWith('http') ? path : `${baseUrl}${path}`
+
+  while (nextUrl) {
+    const response = await fetch(nextUrl, {
+      headers: {
+        Accept: 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+    })
+
+    if (!response.ok) {
+      const text = await response.text()
+      throw new Error(
+        `Canvas responded with ${response.status} ${response.statusText}: ${text || 'No body'}`,
+      )
+    }
+
+    const text = await response.text()
+    if (text) {
+      const parsed = JSON.parse(text)
+      if (Array.isArray(parsed)) {
+        items.push(...parsed)
+      } else if (parsed) {
+        items.push(parsed)
+      }
+    }
+
+    const links = parseLinkHeader(response.headers.get('link'))
+    nextUrl = links.next ?? null
+  }
+
+  return items
+}
+
 export async function testCanvasConnection(userId) {
   const profile = await fetchCanvasResource(userId, '/api/v1/users/self/profile')
   return profile
 }
 
 export async function fetchCanvasCourses(userId) {
-  return fetchCanvasResource(userId, '/api/v1/courses?enrollment_state=active')
+  return fetchCanvasPaged(userId, '/api/v1/courses?enrollment_state=active&per_page=100')
 }
 
 export async function fetchCanvasWeek(userId, start, end) {
   const params = new URLSearchParams({
     start_date: start,
     end_date: end,
+    per_page: '100',
   })
-  return fetchCanvasResource(userId, `/api/v1/planner/items?${params.toString()}`)
+  return fetchCanvasPaged(userId, `/api/v1/planner/items?${params.toString()}`)
 }
 
 function toTimeString(date) {
