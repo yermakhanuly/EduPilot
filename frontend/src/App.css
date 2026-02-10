@@ -906,6 +906,59 @@
   margin-top: 6px;
 }
 
+.assistant-chat {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.assistant-stream {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 16px;
+  background: var(--panel-soft);
+  border: 1px solid var(--border);
+  min-height: 220px;
+}
+
+.assistant-empty {
+  padding: 12px;
+  border-radius: 12px;
+  background: var(--panel-subtle);
+  border: 1px dashed var(--border);
+}
+
+.assistant-bubble {
+  max-width: 75%;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  box-shadow: var(--shadow-soft);
+}
+
+.assistant-bubble.user {
+  margin-left: auto;
+  background: rgba(126, 224, 255, 0.12);
+  border-color: rgba(126, 224, 255, 0.4);
+}
+
+.assistant-bubble.assistant {
+  margin-right: auto;
+}
+
+.assistant-bubble .assistant-text {
+  margin: 0;
+}
+
+.assistant-input {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
 .form-section {
   display: flex;
   flex-direction: column;

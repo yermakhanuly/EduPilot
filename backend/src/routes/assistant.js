@@ -8,6 +8,15 @@ const router = Router()
 
 const askSchema = z.object({
   question: z.string().min(1),
+  history: z
+    .array(
+      z.object({
+        role: z.enum(['user', 'assistant']),
+        content: z.string().min(1),
+      }),
+    )
+    .max(20)
+    .optional(),
 })
 
 function formatClasses(classes) {
@@ -113,6 +122,12 @@ router.post('/ask', requireAuth, async (req, res) => {
     })
   }
 
+  const history = (parsed.data.history ?? []).slice(-12)
+  const conversation = history.map((message) => ({
+    role: message.role,
+    content: message.content,
+  }))
+
   let response
   try {
     response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -129,11 +144,16 @@ router.post('/ask', requireAuth, async (req, res) => {
           {
             role: 'system',
             content:
-              'You are EduPilot, a concise study coach. Use the provided user data to answer. If data is missing, say so and suggest what to add.',
+              'You are EduPilot, a concise study coach. Use the provided user data to answer. If data is missing, say so and suggest what to add. Keep responses actionable and brief.',
           },
           {
+            role: 'system',
+            content: `User data (JSON):\n${JSON.stringify(context, null, 2)}`,
+          },
+          ...conversation,
+          {
             role: 'user',
-            content: `Question: ${parsed.data.question}\n\nUser data:\n${JSON.stringify(context, null, 2)}`,
+            content: parsed.data.question,
           },
         ],
       }),
