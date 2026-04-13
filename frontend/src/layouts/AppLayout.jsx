@@ -4,12 +4,12 @@ import { statsApi } from '../api/client'
 import { useAuthStore } from '../store/authStore'
 import { usePageTitle } from '../hooks/usePageTitle'
 import { useEffect, useMemo, useState } from 'react'
+import { AssistantPanel } from '../components/AssistantPanel'
 
 const navItems = [
   { to: '/app/dashboard', label: 'Dashboard' },
   { to: '/app/plan', label: 'Plan' },
   { to: '/app/tasks', label: 'Tasks' },
-  { to: '/app/assistant', label: 'Assistant' },
   { to: '/app/progress', label: 'Progress' },
   { to: '/app/rewards', label: 'Rewards' },
   { to: '/app/settings', label: 'Settings' },
@@ -30,7 +30,7 @@ export function AppLayout() {
   const mobileNavItems = useMemo(
     () =>
       navItems.filter((item) =>
-        ['/app/dashboard', '/app/plan', '/app/tasks', '/app/assistant', '/app/progress', '/app/settings'].includes(
+        ['/app/dashboard', '/app/plan', '/app/tasks', '/app/progress', '/app/settings'].includes(
           item.to,
         ),
       ),
@@ -116,6 +116,7 @@ export function AppLayout() {
             </NavLink>
           ))}
         </nav>
+        <AssistantPanel />
       </div>
     </div>
   )

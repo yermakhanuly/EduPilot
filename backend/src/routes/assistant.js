@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { env } from '../config/env.js'
 import { prisma } from '../config/prisma.js'
 import { requireAuth } from '../middleware/requireAuth.js'
+import { generatePlan } from '../services/planner.js'
 
 const router = Router()
 
@@ -15,7 +16,7 @@ const askSchema = z.object({
         content: z.string().min(1),
       }),
     )
-    .max(20)
+    .max(50)
     .optional(),
 })
 
@@ -23,8 +24,202 @@ function formatClasses(classes) {
   if (!classes.length) return 'No weekly classes set.'
   const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
   return classes
-    .map((classItem) => `${dayNames[classItem.day]} ${classItem.start}-${classItem.end} ${classItem.title}`)
+    .map((c) => `${dayNames[c.day]} ${c.start}-${c.end} ${c.title}`)
     .join(', ')
+}
+
+function getMondayOfCurrentWeek() {
+  const d = new Date()
+  const day = d.getDay()
+  const diff = day === 0 ? -6 : 1 - day
+  d.setDate(d.getDate() + diff)
+  d.setHours(0, 0, 0, 0)
+  return d
+}
+
+const AGENT_TOOLS = [
+  {
+    type: 'function',
+    function: {
+      name: 'add_class',
+      description: 'Add a recurring weekly class to the user schedule.',
+      parameters: {
+        type: 'object',
+        properties: {
+          title: { type: 'string', description: 'Class name' },
+          day: { type: 'integer', description: '0=Monday … 6=Sunday' },
+          start: { type: 'string', description: 'Start time HH:MM' },
+          end: { type: 'string', description: 'End time HH:MM' },
+          location: { type: 'string', description: 'Optional location' },
+        },
+        required: ['title', 'day', 'start', 'end'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'remove_class',
+      description: 'Remove a recurring weekly class by its ID.',
+      parameters: {
+        type: 'object',
+        properties: {
+          classId: { type: 'string', description: 'The id of the class to remove (from context)' },
+        },
+        required: ['classId'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'add_task',
+      description: 'Add a new task or assignment.',
+      parameters: {
+        type: 'object',
+        properties: {
+          title: { type: 'string' },
+          description: { type: 'string' },
+          deadline: { type: 'string', description: 'ISO 8601 datetime, e.g. 2025-05-01T23:59:00Z' },
+          difficulty: { type: 'string', enum: ['easy', 'medium', 'hard'] },
+          priority: { type: 'integer', description: '1 (low) to 5 (high)', minimum: 1, maximum: 5 },
+          remainingHours: { type: 'number', description: 'Estimated hours remaining' },
+        },
+        required: ['title'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'remove_task',
+      description: 'Remove a task by its ID.',
+      parameters: {
+        type: 'object',
+        properties: {
+          taskId: { type: 'string', description: 'The id of the task to remove (from context)' },
+        },
+        required: ['taskId'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'add_event',
+      description: 'Add a fixed one-time event such as an exam.',
+      parameters: {
+        type: 'object',
+        properties: {
+          title: { type: 'string' },
+          type: { type: 'string', enum: ['exam', 'appointment', 'other'] },
+          start: { type: 'string', description: 'ISO 8601 datetime' },
+          end: { type: 'string', description: 'ISO 8601 datetime' },
+          notes: { type: 'string' },
+        },
+        required: ['title', 'type', 'start', 'end'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'remove_event',
+      description: 'Remove a fixed event by its ID.',
+      parameters: {
+        type: 'object',
+        properties: {
+          eventId: { type: 'string', description: 'The id of the event to remove (from context)' },
+        },
+        required: ['eventId'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'generate_plan',
+      description: 'Generate or regenerate the weekly study plan.',
+      parameters: {
+        type: 'object',
+        properties: {
+          weekStart: {
+            type: 'string',
+            description:
+              'ISO date for the Monday of the week to plan (e.g. 2025-04-14). Omit to use the current week.',
+          },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'set_theme',
+      description: 'Switch the app colour theme.',
+      parameters: {
+        type: 'object',
+        properties: {
+          theme: { type: 'string', enum: ['light', 'dark'] },
+        },
+        required: ['theme'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'navigate',
+      description: 'Navigate the user to a different page in the app.',
+      parameters: {
+        type: 'object',
+        properties: {
+          to: {
+            type: 'string',
+            enum: [
+              '/app/dashboard',
+              '/app/plan',
+              '/app/tasks',
+              '/app/progress',
+              '/app/rewards',
+              '/app/settings',
+              '/app/integrations/canvas',
+            ],
+          },
+        },
+        required: ['to'],
+      },
+    },
+  },
+]
+
+async function callOpenAI(messages, tools) {
+  const body = {
+    model: 'gpt-4o',
+    temperature: 0.2,
+    max_tokens: 600,
+    messages,
+  }
+  if (tools) {
+    body.tools = tools
+    body.tool_choice = 'auto'
+  }
+
+  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${env.OPENAI_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  })
+
+  if (!response.ok) {
+    const text = await response.text()
+    throw new Error(`OpenAI error: ${text}`)
+  }
+  return response.json()
 }
 
 router.post('/ask', requireAuth, async (req, res) => {
@@ -41,20 +236,6 @@ router.post('/ask', requireAuth, async (req, res) => {
   if (!userId) {
     return res.status(401).json({ error: 'Not authenticated' })
   }
-
-  await prisma.task.deleteMany({
-    where: {
-      userId,
-      OR: [
-        { deadline: { lt: new Date() } },
-        { status: 'completed', source: { not: 'canvas' } },
-      ],
-    },
-  })
-
-  await prisma.fixedEvent.deleteMany({
-    where: { userId, end: { lt: new Date() } },
-  })
 
   const [tasks, classes, events, stats, blocks] = await Promise.all([
     prisma.task.findMany({
@@ -77,100 +258,294 @@ router.post('/ask', requireAuth, async (req, res) => {
   ])
 
   const context = {
-    tasks: tasks.map((task) => ({
-      title: task.title,
-      deadline: task.deadline?.toISOString() ?? null,
-      remainingHours: task.remainingHours,
-      priority: task.priority,
-      status: task.status,
+    tasks: tasks.map((t) => ({
+      id: t.id,
+      title: t.title,
+      deadline: t.deadline?.toISOString() ?? null,
+      remainingHours: t.remainingHours,
+      priority: t.priority,
+      status: t.status,
     })),
-    weeklyClasses: classes.map((classItem) => ({
-      title: classItem.title,
-      day: classItem.day,
-      start: classItem.start,
-      end: classItem.end,
-      location: classItem.location ?? null,
+    weeklyClasses: classes.map((c) => ({
+      id: c.id,
+      title: c.title,
+      day: c.day,
+      start: c.start,
+      end: c.end,
+      location: c.location ?? null,
     })),
     weeklyClassSummary: formatClasses(classes),
-    fixedEvents: events.map((event) => ({
-      title: event.title,
-      type: event.type,
-      start: event.start.toISOString(),
-      end: event.end.toISOString(),
+    fixedEvents: events.map((e) => ({
+      id: e.id,
+      title: e.title,
+      type: e.type,
+      start: e.start.toISOString(),
+      end: e.end.toISOString(),
     })),
     stats: stats
-      ? {
-          totalXp: stats.totalXp,
-          weeklyXp: stats.weeklyXp,
-          streak: stats.streak,
-          level: stats.level,
-        }
+      ? { totalXp: stats.totalXp, weeklyXp: stats.weeklyXp, streak: stats.streak, level: stats.level }
       : null,
-    upcomingBlocks: blocks.map((block) => ({
-      title: block.task?.title ?? 'Focus block',
-      start: block.start.toISOString(),
-      end: block.end.toISOString(),
-      status: block.status,
+    upcomingBlocks: blocks.map((b) => ({
+      title: b.task?.title ?? 'Focus block',
+      start: b.start.toISOString(),
+      end: b.end.toISOString(),
+      status: b.status,
     })),
   }
 
-  const hasData = tasks.length > 0 || classes.length > 0 || events.length > 0 || blocks.length > 0
-  if (!hasData) {
-    return res.json({
-      answer:
-        'No study data is available yet. Add tasks, weekly classes, or exams and try again so I can give personalized guidance.',
-    })
-  }
+  const history = (parsed.data.history ?? []).slice(-20)
+  const conversation = history.map((m) => ({ role: m.role, content: m.content }))
 
-  const history = (parsed.data.history ?? []).slice(-12)
-  const conversation = history.map((message) => ({
-    role: message.role,
-    content: message.content,
-  }))
+  const systemMessages = [
+    {
+      role: 'system',
+      content: `You are EduPilot, an AI study coach that can take real actions inside the app.
 
-  let response
+CRITICAL RULES — follow these without exception:
+1. You have function tools available. When the user asks you to add a class, task, or event, or to remove one, or to generate a plan, or to switch the theme — you MUST call the appropriate tool immediately. Do not explain how to do it manually. Do not say you "can't" do it.
+2. NEVER say phrases like "I can't directly", "I'm not able to", "you would need to", or "please go to the settings". You have the tools — USE them.
+3. After calling a tool, briefly confirm what you did. Keep replies short.
+4. For adding a class: day numbers are 0=Monday, 1=Tuesday, 2=Wednesday, 3=Thursday, 4=Friday, 5=Saturday, 6=Sunday. Times must be "HH:MM" format (e.g. "09:00").
+5. If the user's request is ambiguous (e.g. missing a time), make a reasonable assumption and mention it in your reply rather than asking for clarification.`,
+    },
+    {
+      role: 'system',
+      content: `Current user data (use IDs when removing items):\n${JSON.stringify(context, null, 2)}`,
+    },
+  ]
+
+  const messages = [
+    ...systemMessages,
+    ...conversation,
+    { role: 'user', content: parsed.data.question },
+  ]
+
+  let firstData
   try {
-    response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${env.OPENAI_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        temperature: 0.3,
-        max_tokens: 400,
-        messages: [
-          {
-            role: 'system',
-            content:
-              'You are EduPilot, a concise study coach. Use the provided user data to answer. If data is missing, say so and suggest what to add. Keep responses actionable and brief.',
-          },
-          {
-            role: 'system',
-            content: `User data (JSON):\n${JSON.stringify(context, null, 2)}`,
-          },
-          ...conversation,
-          {
-            role: 'user',
-            content: parsed.data.question,
-          },
-        ],
-      }),
-    })
+    firstData = await callOpenAI(messages, AGENT_TOOLS)
   } catch (error) {
     return res.status(500).json({ error: 'OpenAI request failed', detail: error.message })
   }
 
-  if (!response.ok) {
-    const errorText = await response.text()
-    return res.status(500).json({ error: 'OpenAI request failed', detail: errorText })
+  const firstChoice = firstData.choices?.[0]
+  const assistantMessage = firstChoice?.message
+
+  // No tool calls — return the text response directly
+  if (!assistantMessage?.tool_calls?.length) {
+    return res.json({
+      answer: assistantMessage?.content?.trim() || 'No response generated.',
+      actionsPerformed: [],
+      clientActions: [],
+      invalidateQueries: [],
+    })
   }
 
-  const data = await response.json()
-  const answer = data.choices?.[0]?.message?.content?.trim()
+  // Execute tool calls
+  const actionsPerformed = []
+  const clientActions = []
+  const invalidateQueries = new Set()
+  const toolResultMessages = []
 
-  return res.json({ answer: answer || 'No response generated.' })
+  for (const toolCall of assistantMessage.tool_calls) {
+    const { name, arguments: argsStr } = toolCall.function
+    let args
+    try {
+      args = JSON.parse(argsStr)
+    } catch {
+      args = {}
+    }
+
+    let result = 'Done.'
+
+    if (name === 'add_class') {
+      const created = await prisma.weeklyClass.create({
+        data: {
+          userId,
+          title: args.title,
+          day: args.day,
+          start: args.start,
+          end: args.end,
+          location: args.location ?? null,
+          source: 'manual',
+        },
+      })
+      result = `Class "${args.title}" added (id: ${created.id})`
+      actionsPerformed.push({ type: 'add_class', summary: `Added class "${args.title}"` })
+      invalidateQueries.add('classes')
+
+    } else if (name === 'remove_class') {
+      await prisma.weeklyClass.deleteMany({ where: { id: args.classId, userId } })
+      result = `Class removed`
+      actionsPerformed.push({ type: 'remove_class', summary: 'Removed class' })
+      invalidateQueries.add('classes')
+
+    } else if (name === 'add_task') {
+      const created = await prisma.task.create({
+        data: {
+          userId,
+          title: args.title,
+          description: args.description ?? null,
+          deadline: args.deadline ? new Date(args.deadline) : null,
+          difficulty: args.difficulty ?? 'medium',
+          priority: args.priority ?? 3,
+          remainingHours: args.remainingHours ?? 1,
+          status: 'pending',
+          source: 'manual',
+        },
+      })
+      result = `Task "${args.title}" added (id: ${created.id})`
+      actionsPerformed.push({ type: 'add_task', summary: `Added task "${args.title}"` })
+      invalidateQueries.add('tasks')
+
+    } else if (name === 'remove_task') {
+      await prisma.task.deleteMany({ where: { id: args.taskId, userId } })
+      result = `Task removed`
+      actionsPerformed.push({ type: 'remove_task', summary: 'Removed task' })
+      invalidateQueries.add('tasks')
+
+    } else if (name === 'add_event') {
+      const created = await prisma.fixedEvent.create({
+        data: {
+          userId,
+          title: args.title,
+          type: args.type,
+          start: new Date(args.start),
+          end: new Date(args.end),
+          notes: args.notes ?? null,
+          source: 'manual',
+        },
+      })
+      result = `Event "${args.title}" added (id: ${created.id})`
+      actionsPerformed.push({ type: 'add_event', summary: `Added event "${args.title}"` })
+      invalidateQueries.add('events')
+
+    } else if (name === 'remove_event') {
+      await prisma.fixedEvent.deleteMany({ where: { id: args.eventId, userId } })
+      result = `Event removed`
+      actionsPerformed.push({ type: 'remove_event', summary: 'Removed event' })
+      invalidateQueries.add('events')
+
+    } else if (name === 'generate_plan') {
+      const weekStartDate = args.weekStart
+        ? new Date(args.weekStart)
+        : getMondayOfCurrentWeek()
+      weekStartDate.setHours(0, 0, 0, 0)
+      const weekStartStr = weekStartDate.toISOString().split('T')[0]
+
+      const [planTasks, planClasses, planEvents] = await Promise.all([
+        prisma.task.findMany({
+          where: {
+            userId,
+            status: { not: 'completed' },
+            OR: [{ deadline: null }, { deadline: { gte: new Date() } }],
+          },
+        }),
+        prisma.weeklyClass.findMany({ where: { userId }, orderBy: [{ day: 'asc' }, { start: 'asc' }] }),
+        prisma.fixedEvent.findMany({ where: { userId, end: { gte: new Date() } } }),
+      ])
+
+      const classEvents = planClasses.map((c) => {
+        const [sh, sm] = c.start.split(':').map(Number)
+        const [eh, em] = c.end.split(':').map(Number)
+        const dayDate = new Date(weekStartDate)
+        dayDate.setDate(dayDate.getDate() + c.day)
+        const start = new Date(dayDate)
+        start.setHours(sh, sm, 0, 0)
+        const end = new Date(dayDate)
+        end.setHours(eh, em, 0, 0)
+        return { title: c.title, start: start.toISOString(), end: end.toISOString() }
+      })
+
+      const normalizedTasks = planTasks
+        .filter((t) => t.remainingHours > 0)
+        .map((t) => ({
+          id: t.id,
+          title: t.title,
+          deadline: t.deadline?.toISOString() ?? null,
+          remainingHours: t.remainingHours,
+          priority: t.priority,
+        }))
+
+      const plan = generatePlan({
+        weekStart: weekStartStr,
+        tasks: normalizedTasks,
+        fixedEvents: [
+          ...planEvents.map((e) => ({
+            title: e.title,
+            start: e.start.toISOString(),
+            end: e.end.toISOString(),
+          })),
+          ...classEvents,
+        ],
+        availabilityRules: Array.from({ length: 7 }, (_, day) => ({
+          day,
+          start: '08:00',
+          end: '23:59',
+        })),
+      })
+
+      const endDate = new Date(weekStartDate)
+      endDate.setDate(endDate.getDate() + 7)
+
+      await prisma.studyBlock.deleteMany({
+        where: { userId, start: { gte: weekStartDate }, end: { lte: endDate } },
+      })
+      if (plan.blocks.length > 0) {
+        await prisma.studyBlock.createMany({
+          data: plan.blocks.map((b) => ({
+            userId,
+            taskId: b.taskId ?? null,
+            start: b.start,
+            end: b.end,
+            source: b.source,
+          })),
+        })
+      }
+
+      result = `Plan generated: ${plan.blocks.length} study blocks for week of ${weekStartStr}`
+      actionsPerformed.push({ type: 'generate_plan', summary: `Generated plan (${plan.blocks.length} blocks)` })
+      invalidateQueries.add('plan-blocks')
+
+    } else if (name === 'set_theme') {
+      clientActions.push({ type: 'set_theme', value: args.theme })
+      result = `Theme set to ${args.theme}`
+      actionsPerformed.push({ type: 'set_theme', summary: `Switched to ${args.theme} theme` })
+
+    } else if (name === 'navigate') {
+      clientActions.push({ type: 'navigate', to: args.to })
+      result = `Navigating to ${args.to}`
+      actionsPerformed.push({ type: 'navigate', summary: `Navigated to ${args.to}` })
+    }
+
+    toolResultMessages.push({
+      role: 'tool',
+      tool_call_id: toolCall.id,
+      content: result,
+    })
+  }
+
+  // Second OpenAI call to get the natural language confirmation
+  let finalAnswer = actionsPerformed.map((a) => a.summary).join('. ')
+  try {
+    const finalMessages = [
+      ...systemMessages,
+      ...conversation,
+      { role: 'user', content: parsed.data.question },
+      assistantMessage,
+      ...toolResultMessages,
+    ]
+    const finalData = await callOpenAI(finalMessages)
+    finalAnswer = finalData.choices?.[0]?.message?.content?.trim() || finalAnswer
+  } catch {
+    // Keep the fallback summary if the second call fails
+  }
+
+  return res.json({
+    answer: finalAnswer,
+    actionsPerformed,
+    clientActions,
+    invalidateQueries: [...invalidateQueries],
+  })
 })
 
 export default router

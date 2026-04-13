@@ -9,7 +9,6 @@ const titleMap = {
   '/app/dashboard': 'Dashboard',
   '/app/plan': 'Plan',
   '/app/tasks': 'Tasks',
-  '/app/assistant': 'Assistant',
   '/app/progress': 'Progress',
   '/app/rewards': 'Rewards',
   '/app/settings': 'Settings',

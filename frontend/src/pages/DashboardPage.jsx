@@ -51,8 +51,8 @@ export function DashboardPage() {
             <Link className="primary" to="/app/strict">
               Start focus sprint
             </Link>
-            <Link className="ghost" to="/app/assistant">
-              Ask the AI helper
+            <Link className="ghost" to="/app/tasks">
+              Manage tasks
             </Link>
           </div>
         </div>
