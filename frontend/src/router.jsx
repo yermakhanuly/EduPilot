@@ -9,7 +9,6 @@ import { LoginPage } from './pages/LoginPage'
 import { PlanPage } from './pages/PlanPage'
 import { ProgressPage } from './pages/ProgressPage'
 import { RewardsPage } from './pages/RewardsPage'
-import { AssistantPage } from './pages/AssistantPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { SignupPage } from './pages/SignupPage'
 import { StrictModePage } from './pages/StrictModePage'
@@ -29,7 +28,6 @@ export const router = createBrowserRouter(
         <Route path="dashboard" element={<DashboardPage />} />
         <Route path="plan" element={<PlanPage />} />
         <Route path="tasks" element={<TasksPage />} />
-        <Route path="assistant" element={<AssistantPage />} />
         <Route path="progress" element={<ProgressPage />} />
         <Route path="rewards" element={<RewardsPage />} />
         <Route path="settings" element={<SettingsPage />} />

@@ -906,6 +906,59 @@
   margin-top: 6px;
 }
 
+.assistant-chat {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.assistant-stream {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 16px;
+  background: var(--panel-soft);
+  border: 1px solid var(--border);
+  min-height: 220px;
+}
+
+.assistant-empty {
+  padding: 12px;
+  border-radius: 12px;
+  background: var(--panel-subtle);
+  border: 1px dashed var(--border);
+}
+
+.assistant-bubble {
+  max-width: 75%;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  box-shadow: var(--shadow-soft);
+}
+
+.assistant-bubble.user {
+  margin-left: auto;
+  background: rgba(126, 224, 255, 0.12);
+  border-color: rgba(126, 224, 255, 0.4);
+}
+
+.assistant-bubble.assistant {
+  margin-right: auto;
+}
+
+.assistant-bubble .assistant-text {
+  margin: 0;
+}
+
+.assistant-input {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
 .form-section {
   display: flex;
   flex-direction: column;
@@ -1247,5 +1300,136 @@
   .quest-meta {
     width: auto;
     justify-content: flex-start;
+  }
+}
+
+/* ── AI Assistant floating panel ─────────────────────────────── */
+
+.assistant-fab {
+  position: fixed;
+  bottom: 80px;
+  right: 16px;
+  z-index: 50;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: none;
+  background: var(--accent-gradient);
+  color: #071017;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 8px 24px rgba(126, 224, 255, 0.4);
+  transition: transform 160ms ease, box-shadow 160ms ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.assistant-fab:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 30px rgba(126, 224, 255, 0.5);
+}
+
+.assistant-panel {
+  position: fixed;
+  bottom: 140px;
+  right: 16px;
+  width: 340px;
+  max-height: 480px;
+  z-index: 49;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  box-shadow: var(--shadow-strong);
+  opacity: 0;
+  transform: translateY(16px);
+  pointer-events: none;
+  transition: opacity 200ms ease, transform 200ms ease;
+  overflow: hidden;
+}
+
+.assistant-panel.open {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: all;
+}
+
+.assistant-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px 10px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.assistant-panel-stream {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+  padding: 12px;
+  gap: 10px;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  min-height: unset;
+}
+
+.assistant-panel-stream .assistant-bubble {
+  max-width: 85%;
+  font-size: 13px;
+}
+
+.assistant-panel-input {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.assistant-panel-input input {
+  flex: 1;
+  background: var(--panel-muted);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 12px;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+  transition: border-color 160ms ease;
+}
+
+.assistant-panel-input input:focus {
+  border-color: var(--accent);
+}
+
+.assistant-panel-input input::placeholder {
+  color: var(--muted);
+}
+
+.assistant-panel-input .primary.small {
+  padding: 8px 14px;
+  border-radius: 10px;
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+@media (min-width: 1024px) {
+  .assistant-fab {
+    bottom: 28px;
+    right: 28px;
+  }
+
+  .assistant-panel {
+    bottom: 90px;
+    right: 28px;
+    width: 380px;
+    max-height: 540px;
   }
 }

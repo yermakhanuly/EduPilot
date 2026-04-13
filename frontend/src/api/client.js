@@ -174,10 +174,10 @@ export const rewardsApi = {
 }
 
 export const assistantApi = {
-  ask(question) {
+  ask(payload) {
     return request('/assistant/ask', {
       method: 'POST',
-      body: JSON.stringify({ question }),
+      body: JSON.stringify(payload),
     })
   },
 }

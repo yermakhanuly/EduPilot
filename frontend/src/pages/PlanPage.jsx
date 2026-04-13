@@ -649,9 +649,7 @@ export function PlanPage() {
               <p className="label">AI adjustments</p>
               <h3>Live suggestions</h3>
             </div>
-            <Link className="ghost small" to="/app/assistant">
-              Ask assistant
-            </Link>
+            <span className="pill pill-quiet" style={{ fontSize: 12 }}>Use the 💬 chat button</span>
           </div>
           <div className="empty-state">
             <strong>No AI insights yet</strong>
