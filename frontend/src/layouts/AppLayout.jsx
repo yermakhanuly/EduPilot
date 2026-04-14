@@ -7,13 +7,13 @@ import { useEffect, useMemo, useState } from 'react'
 import { AssistantPanel } from '../components/AssistantPanel'
 
 const navItems = [
-  { to: '/app/dashboard', label: 'Dashboard' },
-  { to: '/app/plan', label: 'Plan' },
-  { to: '/app/tasks', label: 'Tasks' },
-  { to: '/app/progress', label: 'Progress' },
-  { to: '/app/rewards', label: 'Rewards' },
-  { to: '/app/settings', label: 'Settings' },
-  { to: '/app/integrations/canvas', label: 'Canvas' },
+  { to: '/app/dashboard', label: 'Dashboard', icon: '⊞' },
+  { to: '/app/plan', label: 'Plan', icon: '◫' },
+  { to: '/app/tasks', label: 'Tasks', icon: '✦' },
+  { to: '/app/progress', label: 'Progress', icon: '◈' },
+  { to: '/app/rewards', label: 'Rewards', icon: '◉' },
+  { to: '/app/settings', label: 'Settings', icon: '⊙' },
+  { to: '/app/integrations/canvas', label: 'Canvas', icon: '⊕' },
 ]
 
 export function AppLayout() {
@@ -61,7 +61,7 @@ export function AppLayout() {
               className={({ isActive }) => `side-link${isActive ? ' active' : ''}`}
               end={item.to === '/app/dashboard'}
             >
-              {item.label}
+              <span className="nav-icon">{item.icon}</span>{item.label}
             </NavLink>
           ))}
         </nav>
@@ -112,7 +112,7 @@ export function AppLayout() {
               className={({ isActive }) => `mobile-link${isActive ? ' active' : ''}`}
               end={item.to === '/app/dashboard'}
             >
-              {item.label}
+              <span className="nav-icon">{item.icon}</span>{item.label}
             </NavLink>
           ))}
         </nav>
