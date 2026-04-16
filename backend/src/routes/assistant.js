@@ -310,10 +310,16 @@ router.post('/ask', requireAuth, async (req, res) => {
   const history = (parsed.data.history ?? []).slice(-20)
   const conversation = history.map((m) => ({ role: m.role, content: m.content }))
 
+  const now = new Date()
+  const currentDateStr = now.toISOString().split('T')[0] // e.g. "2026-04-16"
+  const currentYear = now.getFullYear()
+
   const systemMessages = [
     {
       role: 'system',
       content: `You are EduPilot, an AI study coach that can take real actions inside the app.
+
+Today's date is ${currentDateStr} (year ${currentYear}).
 
 CRITICAL RULES — follow these without exception:
 1. You MUST always call a tool. Never reply with plain text alone.
@@ -322,7 +328,8 @@ CRITICAL RULES — follow these without exception:
 4. NEVER say "I can't directly", "I'm not able to", or "please go to the settings". You have the tools — USE them.
 5. After performing an action, also call send_reply with a brief confirmation (e.g. "Added 'Math' task with a Friday deadline.").
 6. For adding a class: day numbers are 0=Monday … 6=Sunday. Times must be "HH:MM" (e.g. "09:00").
-7. If a request is ambiguous (e.g. missing a time), make a reasonable assumption and mention it in your send_reply confirmation.`,
+7. If a request is ambiguous (e.g. missing a time), make a reasonable assumption and mention it in your send_reply confirmation.
+8. When a user mentions a date without a year (e.g. "May 15", "next Friday", "June 3rd"), always assume the current year (${currentYear}) unless it would be in the past, in which case use the next year (${currentYear + 1}).`,
     },
     {
       role: 'system',
