@@ -192,9 +192,23 @@ const AGENT_TOOLS = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'send_reply',
+      description: 'Send a plain text reply to the user when no other action is needed.',
+      parameters: {
+        type: 'object',
+        properties: {
+          message: { type: 'string', description: 'The reply text to show the user.' },
+        },
+        required: ['message'],
+      },
+    },
+  },
 ]
 
-async function callOpenAI(messages, tools) {
+async function callOpenAI(messages, tools, toolChoice = 'auto') {
   const body = {
     model: 'gpt-4o',
     temperature: 0.2,
@@ -203,7 +217,7 @@ async function callOpenAI(messages, tools) {
   }
   if (tools) {
     body.tools = tools
-    body.tool_choice = 'auto'
+    body.tool_choice = toolChoice
   }
 
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -302,11 +316,13 @@ router.post('/ask', requireAuth, async (req, res) => {
       content: `You are EduPilot, an AI study coach that can take real actions inside the app.
 
 CRITICAL RULES — follow these without exception:
-1. You have function tools available. When the user asks you to add a class, task, or event, or to remove one, or to generate a plan, or to switch the theme — you MUST call the appropriate tool immediately. Do not explain how to do it manually. Do not say you "can't" do it.
-2. NEVER say phrases like "I can't directly", "I'm not able to", "you would need to", or "please go to the settings". You have the tools — USE them.
-3. After calling a tool, briefly confirm what you did. Keep replies short.
-4. For adding a class: day numbers are 0=Monday, 1=Tuesday, 2=Wednesday, 3=Thursday, 4=Friday, 5=Saturday, 6=Sunday. Times must be "HH:MM" format (e.g. "09:00").
-5. If the user's request is ambiguous (e.g. missing a time), make a reasonable assumption and mention it in your reply rather than asking for clarification.`,
+1. You MUST always call a tool. Never reply with plain text alone.
+2. For action requests (add/remove a class, task, or event; generate a plan; switch theme; navigate): call the appropriate action tool.
+3. For informational or conversational replies where no action is needed: call send_reply with your message.
+4. NEVER say "I can't directly", "I'm not able to", or "please go to the settings". You have the tools — USE them.
+5. After performing an action, also call send_reply with a brief confirmation (e.g. "Added 'Math' task with a Friday deadline.").
+6. For adding a class: day numbers are 0=Monday … 6=Sunday. Times must be "HH:MM" (e.g. "09:00").
+7. If a request is ambiguous (e.g. missing a time), make a reasonable assumption and mention it in your send_reply confirmation.`,
     },
     {
       role: 'system',
@@ -322,7 +338,7 @@ CRITICAL RULES — follow these without exception:
 
   let firstData
   try {
-    firstData = await callOpenAI(messages, AGENT_TOOLS)
+    firstData = await callOpenAI(messages, AGENT_TOOLS, 'required')
   } catch (error) {
     return res.status(500).json({ error: 'OpenAI request failed', detail: error.message })
   }
@@ -330,7 +346,7 @@ CRITICAL RULES — follow these without exception:
   const firstChoice = firstData.choices?.[0]
   const assistantMessage = firstChoice?.message
 
-  // No tool calls — return the text response directly
+  // No tool calls — should not happen with tool_choice: required, but handle gracefully
   if (!assistantMessage?.tool_calls?.length) {
     return res.json({
       answer: assistantMessage?.content?.trim() || 'No response generated.',
@@ -345,6 +361,7 @@ CRITICAL RULES — follow these without exception:
   const clientActions = []
   const invalidateQueries = new Set()
   const toolResultMessages = []
+  let sendReplyText = null
 
   for (const toolCall of assistantMessage.tool_calls) {
     const { name, arguments: argsStr } = toolCall.function
@@ -396,12 +413,16 @@ CRITICAL RULES — follow these without exception:
       result = `Task "${args.title}" added (id: ${created.id})`
       actionsPerformed.push({ type: 'add_task', summary: `Added task "${args.title}"` })
       invalidateQueries.add('tasks')
+      invalidateQueries.add('stats-overview')
+      invalidateQueries.add('stats-weekly')
 
     } else if (name === 'remove_task') {
       await prisma.task.deleteMany({ where: { id: args.taskId, userId } })
       result = `Task removed`
       actionsPerformed.push({ type: 'remove_task', summary: 'Removed task' })
       invalidateQueries.add('tasks')
+      invalidateQueries.add('stats-overview')
+      invalidateQueries.add('stats-weekly')
 
     } else if (name === 'add_event') {
       const created = await prisma.fixedEvent.create({
@@ -418,12 +439,14 @@ CRITICAL RULES — follow these without exception:
       result = `Event "${args.title}" added (id: ${created.id})`
       actionsPerformed.push({ type: 'add_event', summary: `Added event "${args.title}"` })
       invalidateQueries.add('events')
+      invalidateQueries.add('stats-overview')
 
     } else if (name === 'remove_event') {
       await prisma.fixedEvent.deleteMany({ where: { id: args.eventId, userId } })
       result = `Event removed`
       actionsPerformed.push({ type: 'remove_event', summary: 'Removed event' })
       invalidateQueries.add('events')
+      invalidateQueries.add('stats-overview')
 
     } else if (name === 'generate_plan') {
       const weekStartDate = args.weekStart
@@ -515,6 +538,10 @@ CRITICAL RULES — follow these without exception:
       clientActions.push({ type: 'navigate', to: args.to })
       result = `Navigating to ${args.to}`
       actionsPerformed.push({ type: 'navigate', summary: `Navigated to ${args.to}` })
+
+    } else if (name === 'send_reply') {
+      sendReplyText = args.message ?? ''
+      result = 'Reply sent.'
     }
 
     toolResultMessages.push({
@@ -524,21 +551,8 @@ CRITICAL RULES — follow these without exception:
     })
   }
 
-  // Second OpenAI call to get the natural language confirmation
-  let finalAnswer = actionsPerformed.map((a) => a.summary).join('. ')
-  try {
-    const finalMessages = [
-      ...systemMessages,
-      ...conversation,
-      { role: 'user', content: parsed.data.question },
-      assistantMessage,
-      ...toolResultMessages,
-    ]
-    const finalData = await callOpenAI(finalMessages)
-    finalAnswer = finalData.choices?.[0]?.message?.content?.trim() || finalAnswer
-  } catch {
-    // Keep the fallback summary if the second call fails
-  }
+  // Use send_reply text if the model provided one, otherwise fall back to action summaries
+  let finalAnswer = sendReplyText || actionsPerformed.map((a) => a.summary).join('. ') || 'Done.'
 
   return res.json({
     answer: finalAnswer,
