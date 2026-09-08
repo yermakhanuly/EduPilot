@@ -131,7 +131,7 @@ export function AssistantPanel() {
             <span className="label">AI Assistant</span>
             <p style={{ margin: 0, fontWeight: 600, fontSize: 15 }}>Ask EduPilot</p>
           </div>
-          <span className="pill pill-accent" style={{ fontSize: 11 }}>GPT-4o mini</span>
+          <span className="pill pill-accent" style={{ fontSize: 11 }}>Groq</span>
         </div>
 
         <div className="assistant-stream assistant-panel-stream" ref={streamRef}>

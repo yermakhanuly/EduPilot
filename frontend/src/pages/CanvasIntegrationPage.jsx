@@ -1,4 +1,4 @@
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { canvasApi } from '../api/client'
 
@@ -7,13 +7,22 @@ export function CanvasIntegrationPage() {
     baseUrl: 'https://school.instructure.com',
     token: '',
   })
+  const queryClient = useQueryClient()
+
+  function invalidateCanvasData() {
+    for (const key of ['tasks', 'classes', 'events', 'plan-blocks']) {
+      queryClient.invalidateQueries({ queryKey: [key] })
+    }
+  }
 
   const connectMutation = useMutation({
     mutationFn: () => canvasApi.connect(form),
+    onSuccess: invalidateCanvasData,
   })
 
   const syncMutation = useMutation({
     mutationFn: () => canvasApi.sync(),
+    onSuccess: invalidateCanvasData,
   })
 
   function onSubmit(event) {

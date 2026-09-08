@@ -66,7 +66,7 @@ JWT_REFRESH_SECRET=your_refresh_secret
 ENCRYPTION_KEY=32+_chars_minimum
 COOKIE_DOMAIN=
 COOKIE_SECURE=false
-OPENAI_API_KEY=optional
+GROQ_API_KEY=optional
 CANVAS_WEBHOOK_SECRET=optional
 CANVAS_SYNC_INTERVAL_MINUTES=0
 ```
@@ -110,7 +110,7 @@ VITE_API_URL=http://localhost:4000
 ## Troubleshooting
 - **Login/session issues:** check `CORS_ORIGIN`, `COOKIE_DOMAIN`, and `COOKIE_SECURE`.
 - **Canvas sync errors:** verify token and base URL, and set `CANVAS_SYNC_INTERVAL_MINUTES=0` if you want manual sync only.
-- **AI helper errors:** ensure `OPENAI_API_KEY` is set.
+- **AI helper errors:** ensure `GROQ_API_KEY` is set.
 
 ---
 If you need help, open an issue or contact the maintainer.

@@ -1,6 +1,19 @@
 import { prisma } from '../config/prisma.js'
 import { decrypt, encrypt } from '../utils/crypto.js'
 
+const EXCLUDED_COURSE_NAMES = new Set([
+  'cs announcement',
+  'cs scholarship',
+  'cs student exchange',
+  '# it professional internship (pre-internship)',
+  'it professional internship (pre-internship)',
+  'safety training for ug students (cs)',
+])
+
+function isExcludedCourseName(name) {
+  return EXCLUDED_COURSE_NAMES.has(name?.trim().toLowerCase())
+}
+
 async function getCredentials(userId) {
   const integration = await prisma.integrationCanvas.findUnique({ where: { userId } })
   if (!integration) {
@@ -133,6 +146,26 @@ export async function fetchCanvasCourses(userId) {
   return fetchCanvasPaged(userId, '/api/v1/courses?enrollment_state=active&per_page=100')
 }
 
+export async function fetchCanvasAssignments(userId, courses) {
+  const assignments = []
+  for (const course of courses.filter((item) => !isExcludedCourseName(item.name))) {
+    const courseAssignments = await fetchCanvasPaged(
+      userId,
+      `/api/v1/courses/${course.id}/assignments?per_page=100&order_by=due_at`,
+    )
+    for (const assignment of courseAssignments) {
+      const due = assignment.due_at ?? assignment.all_dates?.[0]?.due_at ?? null
+      assignments.push({
+        type: 'task',
+        externalId: assignment.id ? `assignment:${assignment.id}` : '',
+        title: course.name ? `${course.name} · ${assignment.name}` : assignment.name,
+        deadline: due,
+      })
+    }
+  }
+  return assignments
+}
+
 export async function fetchCanvasWeek(userId, start, end) {
   const params = new URLSearchParams({
     start_date: start,
@@ -173,7 +206,8 @@ function isWeeklyRecurring(rule) {
 function mapPlannerItem(item) {
   const plannable = item?.plannable ?? {}
   const type = item?.plannable_type ?? plannable?.plannable_type ?? ''
-  const externalId = String(item?.plannable_id ?? plannable?.id ?? '')
+  const rawExternalId = String(item?.plannable_id ?? plannable?.id ?? '')
+  const externalId = type === 'assignment' ? `assignment:${rawExternalId}` : rawExternalId
   const contextName = item?.context_name ?? plannable?.course_name ?? ''
 
   if (type === 'calendar_event') {
@@ -197,6 +231,7 @@ function mapPlannerItem(item) {
   const due = plannable?.due_at ?? item?.plannable_date ?? null
   return {
     type: 'task',
+    plannableType: type,
     externalId,
     title: contextName ? `${contextName} · ${title}` : title,
     deadline: due,
@@ -217,24 +252,44 @@ export async function importCanvasData(userId, { start, end }) {
     completedCanvasTasks.map((task) => task.externalId).filter(Boolean),
   )
 
-  const plannerItems = await fetchCanvasWeek(userId, start, end)
+  const [courses, plannerItems] = await Promise.all([
+    fetchCanvasCourses(userId),
+    fetchCanvasWeek(userId, start, end),
+  ])
   if (!Array.isArray(plannerItems)) {
     throw new Error('Canvas response did not return planner items')
   }
+
+  const assignments = await fetchCanvasAssignments(userId, courses)
 
   const tasks = []
   const events = []
   const classes = []
   const now = new Date()
 
-  for (const item of plannerItems) {
-    const mapped = mapPlannerItem(item)
+  const allowedCourseIds = new Set(
+    courses.filter((course) => !isExcludedCourseName(course.name)).map((course) => String(course.id)),
+  )
+  const mappedItems = [
+    ...assignments,
+    ...plannerItems
+      .filter((item) => {
+        const courseName = item.context_name ?? item.plannable?.course_name
+        const courseId = item.course_id ?? item.plannable?.course_id
+        return !isExcludedCourseName(courseName) && (!courseId || allowedCourseIds.has(String(courseId)))
+      })
+      .map(mapPlannerItem)
+      .filter((item) => item.type === 'event' || (item.plannableType === 'assignment' && item.deadline)),
+  ]
+  const seenTaskIds = new Set()
+
+  for (const mapped of mappedItems) {
     if (mapped.type === 'task') {
-      if (!mapped.deadline) continue
-      const deadlineDate = new Date(mapped.deadline)
-      if (Number.isNaN(deadlineDate.getTime())) continue
-      if (deadlineDate < now) continue
+      const deadlineDate = mapped.deadline ? new Date(mapped.deadline) : null
+      if (deadlineDate && Number.isNaN(deadlineDate.getTime())) continue
       if (mapped.externalId && completedExternalIds.has(mapped.externalId)) continue
+      if (mapped.externalId && seenTaskIds.has(mapped.externalId)) continue
+      if (mapped.externalId) seenTaskIds.add(mapped.externalId)
       tasks.push({
         title: mapped.title,
         deadline: deadlineDate,

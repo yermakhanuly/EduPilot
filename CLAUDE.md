@@ -87,7 +87,7 @@ Generates `StudyBlock` records for a given week:
 - Background polling via `canvasSync.js` (interval from `CANVAS_SYNC_INTERVAL_MINUTES`)
 
 ### AI Assistant (`routes/assistant.js`)
-- Uses OpenAI `gpt-4o-mini`
+- Uses LangGraph/LangChain with Groq `qwen/qwen3.6-27b`
 - Builds context from user's tasks, classes, events, stats, and next 12 study blocks
 - Caps conversation history at 20 messages; temperature 0.3, max 400 tokens
 
@@ -105,7 +105,7 @@ ENCRYPTION_KEY        # 32+ char key for Canvas token encryption
 ```
 PORT                        # default: 4000
 CORS_ORIGIN                 # comma-separated origins, default: http://localhost:5173
-OPENAI_API_KEY              # enables AI assistant
+GROQ_API_KEY                # enables AI assistant
 CANVAS_WEBHOOK_SECRET       # enables webhook signature verification
 CANVAS_SYNC_INTERVAL_MINUTES # default: 60
 COOKIE_SECURE               # default: false (set true in production)

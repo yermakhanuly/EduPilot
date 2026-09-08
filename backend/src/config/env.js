@@ -14,7 +14,7 @@ const envSchema = z.object({
     .transform((value) => value === true || value === 'true')
     .default('false'),
   ENCRYPTION_KEY: z.string().min(32),
-  OPENAI_API_KEY: z.string().optional(),
+  GROQ_API_KEY: z.string().optional(),
   CANVAS_WEBHOOK_SECRET: z.string().optional(),
   CANVAS_SYNC_INTERVAL_MINUTES: z.coerce.number().int().min(0).default(60),
 })

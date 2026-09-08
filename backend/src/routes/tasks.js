@@ -43,16 +43,6 @@ router.get('/', requireAuth, async (req, res) => {
     return res.status(401).json({ error: 'Not authenticated' })
   }
 
-  await prisma.task.deleteMany({
-    where: {
-      userId,
-      OR: [
-        { deadline: { lt: new Date() } },
-        { status: 'completed', source: { not: 'canvas' } },
-      ],
-    },
-  })
-
   const tasks = await prisma.task.findMany({
     where: { userId, status: { not: 'completed' } },
     orderBy: [{ deadline: 'asc' }, { createdAt: 'desc' }],
