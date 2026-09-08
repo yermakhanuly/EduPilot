@@ -1,4 +1,4 @@
-const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:4000'
+const API_BASE = (import.meta.env.VITE_API_URL || (import.meta.env.DEV ? '/api' : '')).replace(/\/$/, '')
 const authSkipRefresh = new Set(['/auth/login', '/auth/signup', '/auth/refresh'])
 
 async function rawRequest(path, options) {
@@ -13,7 +13,15 @@ async function rawRequest(path, options) {
 }
 
 async function request(path, options, retryAuth = true) {
-  const response = await rawRequest(path, options)
+  let response
+  try {
+    response = await rawRequest(path, options)
+  } catch (error) {
+    throw new Error(
+      `Unable to connect to EduPilot API. Check that the backend is running and VITE_API_URL points to it.`,
+      { cause: error },
+    )
+  }
 
   if (response.status === 401 && retryAuth && !authSkipRefresh.has(path)) {
     const refreshResponse = await rawRequest('/auth/refresh', { method: 'POST' })

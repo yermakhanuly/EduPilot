@@ -57,25 +57,25 @@ export function DashboardPage() {
           </div>
         </div>
         <div className="stat-grid">
-          <div className="stat-card">
+          <div className="stat-card warn">
             <p className="label">Next deadline</p>
             <div className="stat-value">{nextDeadline ? nextDeadline.title : 'No tasks yet'}</div>
             <span className="pill pill-warn">{formatDeadline(nextDeadline)}</span>
           </div>
-          <div className="stat-card">
+          <div className="stat-card xp">
             <p className="label">XP this week</p>
             <div className="stat-value">{stats?.weeklyXp ?? 0} XP</div>
-            <span className="pill pill-accent">Total {stats?.totalXp ?? 0} XP</span>
+            <span className="pill pill-xp">Total {stats?.totalXp ?? 0} XP</span>
           </div>
-          <div className="stat-card">
+          <div className="stat-card level">
             <p className="label">Strict Mode</p>
             <div className="stat-value">45m / 10m cadence</div>
             <span className="pill pill-quiet">distractions blocked</span>
           </div>
-          <div className="stat-card">
+          <div className="stat-card streak">
             <p className="label">Streak</p>
             <div className="stat-value">Day {stats?.streak ?? 0}</div>
-            <span className="pill pill-accent">Level {level?.level ?? 1}</span>
+            <span className="pill pill-level">Level {level?.level ?? 1}</span>
           </div>
         </div>
       </header>

@@ -90,6 +90,11 @@ Optional `frontend/.env`:
 VITE_API_URL=http://localhost:4000
 ```
 
+When running the frontend locally without `VITE_API_URL`, requests use the Vite
+proxy at `/api` and are forwarded to `http://localhost:4000`. For the Vercel
+deployment, set `VITE_API_URL` in the Vercel project environment variables to
+the public URL of the running backend, then redeploy the frontend.
+
 ## Production Notes
 - Set `CORS_ORIGIN` to your production domain (https).
 - Set `COOKIE_SECURE=true` and `COOKIE_DOMAIN=yourdomain.com`.
