@@ -13,6 +13,7 @@ import sessionsRouter from './routes/sessions.js'
 import statsRouter from './routes/stats.js'
 import tasksRouter from './routes/tasks.js'
 import eventsRouter from './routes/events.js'
+import knowledgeRouter from './routes/knowledge.js'
 import { requireAuth } from './middleware/requireAuth.js'
 import { scheduleCanvasSync } from './services/canvasSync.js'
 
@@ -47,6 +48,7 @@ app.use('/stats', statsRouter)
 app.use('/rewards', rewardsRouter)
 app.use('/assistant', assistantRouter)
 app.use('/canvas', canvasRouter)
+app.use('/knowledge', knowledgeRouter)
 
 app.use((err, _req, res, _next) => {
   // Minimal centralized error handler for unhandled exceptions

@@ -13,6 +13,7 @@ const titleMap = {
   '/app/rewards': 'Rewards',
   '/app/settings': 'Settings',
   '/app/integrations/canvas': 'Canvas',
+  '/app/materials': 'Materials',
   '/app/strict': 'Strict Mode',
 }
 

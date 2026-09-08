@@ -1,0 +1,7 @@
+.git
+.DS_Store
+backend/.env
+backend/node_modules
+frontend/node_modules
+frontend/dist
+**/npm-debug.log*

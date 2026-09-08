@@ -32,6 +32,12 @@ A complete map of every file, every technology, and every end-to-end pipeline in
          │                      │   │  • Canvas LMS           │
          └──────────────────────┘   └────────────────────────┘
 
+                         ┌────────────────────────┐
+                         │ ChromaDB                │
+                         │ Gemini embeddings      │
+                         │ document/course RAG     │
+                         └────────────────────────┘
+
                                ┌───────────────┐
                                │ Background    │
                                │ Canvas sync   │ (setInterval, every 60m)
@@ -79,6 +85,9 @@ Two independent apps: **backend** (Express) and **frontend** (React). They commu
 |---|---|
 | **JWT in httpOnly cookies** | Prevents XSS from reading tokens. `credentials: 'include'` on the fetch client sends them automatically. |
 | **LangGraph + Groq tool calling** | The `/assistant` route invokes a LangGraph agent backed by Groq; the model calls backend tools (add_task, generate_plan, …) instead of producing plain text. |
+| **Gemini + ChromaDB RAG** | Gemini `gemini-embedding-001` creates embeddings for uploaded materials and Canvas course content; ChromaDB performs user/course-scoped similarity search. |
+| **Document ingestion** | PDF, DOCX, PPTX, TXT, Markdown, and HTML files are parsed and chunked for retrieval. Office images and slide visuals are not indexed. |
+| **Docker Compose** | Runs PostgreSQL, ChromaDB, the Express backend, and the Nginx-served frontend with persistent database and vector-store volumes. |
 | **Canvas LMS REST API** | Source of truth for user assignments / exams / recurring classes. Imported into our DB so the planner can use them. |
 
 ---
@@ -159,7 +168,7 @@ Bootstraps the Express app.
 7. `app.listen(env.PORT)` and kicks off `scheduleCanvasSync(...)`.
 
 ### `backend/src/config/env.js`
-Zod schema for every env var. **Fails the process on boot** if something required is missing (DATABASE_URL, JWT secrets, ENCRYPTION_KEY ≥ 32 chars). Optional vars: GROQ_API_KEY, CANVAS_WEBHOOK_SECRET, COOKIE_DOMAIN, CANVAS_SYNC_INTERVAL_MINUTES (default 60).
+Zod schema for every env var. **Fails the process on boot** if something required is missing (DATABASE_URL, JWT secrets, ENCRYPTION_KEY ≥ 32 chars). Optional vars include GROQ_API_KEY, GEMINI_API_KEY, GEMINI_EMBEDDING_MODEL, GEMINI_EMBEDDING_DIMENSIONS, CHROMA_URL, DOCUMENT_MAX_SIZE_MB, CANVAS_WEBHOOK_SECRET, COOKIE_DOMAIN, and CANVAS_SYNC_INTERVAL_MINUTES (default 60).
 
 ### `backend/src/config/prisma.js`
 Exports a single `PrismaClient` instance. Reused everywhere to pool DB connections.

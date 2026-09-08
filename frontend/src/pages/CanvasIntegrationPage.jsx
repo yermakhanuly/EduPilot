@@ -25,6 +25,11 @@ export function CanvasIntegrationPage() {
     onSuccess: invalidateCanvasData,
   })
 
+  const knowledgeSyncMutation = useMutation({
+    mutationFn: () => canvasApi.knowledgeSync(),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['knowledge-documents'] }),
+  })
+
   function onSubmit(event) {
     event.preventDefault()
     connectMutation.mutate()
@@ -61,6 +66,14 @@ export function CanvasIntegrationPage() {
                 disabled={syncMutation.isPending}
               >
                 {syncMutation.isPending ? 'Syncing...' : 'Sync now'}
+              </button>
+              <button
+                className="ghost small"
+                type="button"
+                onClick={() => knowledgeSyncMutation.mutate()}
+                disabled={knowledgeSyncMutation.isPending}
+              >
+                {knowledgeSyncMutation.isPending ? 'Indexing...' : 'Index course materials'}
               </button>
             </div>
           </div>
@@ -111,6 +124,16 @@ export function CanvasIntegrationPage() {
             {syncMutation.error ? (
               <p className="pill pill-warn">
                 {syncMutation.error.message || 'Unable to sync Canvas data'}
+              </p>
+            ) : null}
+            {knowledgeSyncMutation.data ? (
+              <p className="pill pill-quiet">
+                Indexed {knowledgeSyncMutation.data.indexed} Canvas materials.
+              </p>
+            ) : null}
+            {knowledgeSyncMutation.error ? (
+              <p className="pill pill-warn">
+                {knowledgeSyncMutation.error.message || 'Unable to index Canvas materials'}
               </p>
             ) : null}
           </form>

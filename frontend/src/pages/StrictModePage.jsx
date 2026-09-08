@@ -24,7 +24,7 @@ export function StrictModePage() {
   const { active, mode, endsAt, start, beginBreak, focusMinutes, breakMinutes, setFocusMinutes, setBreakMinutes } =
     useStrictStore()
   const queryClient = useQueryClient()
-  const [now, setNow] = useState(Date.now())
+  const [now, setNow] = useState(() => Date.now())
   const [sessionId, setSessionId] = useState(null)
   const [finishRequested, setFinishRequested] = useState(false)
   const weekStart = useMemo(() => startOfWeekISO(), [])
@@ -67,7 +67,7 @@ export function StrictModePage() {
   useEffect(() => {
     if (!active || mode !== 'focus' || !sessionId) return
     if (remaining > 0 || finishRequested) return
-    setFinishRequested(true)
+    queueMicrotask(() => setFinishRequested(true))
     finishMutation.mutate(
       {
         sessionId,

@@ -1,0 +1,64 @@
+import { ChromaClient } from 'chromadb'
+import { env } from '../config/env.js'
+
+const collectionName = 'edupilot_knowledge'
+let collectionPromise
+
+const externalEmbeddingFunction = {
+  generate: async () => {
+    throw new Error('Embeddings must be supplied by the Gemini embedding service')
+  },
+}
+
+async function getCollection() {
+  collectionPromise ??= (async () => {
+    const client = new ChromaClient({ path: env.CHROMA_URL })
+    return client.getOrCreateCollection({
+      name: collectionName,
+      metadata: { 'hnsw:space': 'cosine' },
+      embeddingFunction: externalEmbeddingFunction,
+    })
+  })()
+  return collectionPromise
+}
+
+export async function addChunks(chunks) {
+  if (!chunks.length) return
+  const collection = await getCollection()
+  await collection.upsert({
+    ids: chunks.map((chunk) => chunk.id),
+    documents: chunks.map((chunk) => chunk.text),
+    embeddings: chunks.map((chunk) => chunk.embedding),
+    metadatas: chunks.map((chunk) => chunk.metadata),
+  })
+}
+
+export async function searchChunks({ embedding, userId, courseId, limit = 5 }) {
+  const collection = await getCollection()
+  const where = courseId
+    ? { $and: [{ userId }, { courseId }] }
+    : { userId }
+  const result = await collection.query({
+    queryEmbeddings: [embedding],
+    nResults: limit,
+    where,
+    include: ['documents', 'metadatas', 'distances'],
+  })
+
+  return (result.documents?.[0] ?? []).map((text, index) => ({
+    text,
+    metadata: result.metadatas?.[0]?.[index] ?? {},
+    distance: result.distances?.[0]?.[index] ?? null,
+  }))
+}
+
+export async function deleteChunks(ids) {
+  if (!ids.length) return
+  const collection = await getCollection()
+  await collection.delete({ ids })
+}
+
+export async function deleteChunksForDocument(documentId, userId) {
+  const collection = await getCollection()
+  await collection.delete({ where: { $and: [{ documentId }, { userId }] } })
+}

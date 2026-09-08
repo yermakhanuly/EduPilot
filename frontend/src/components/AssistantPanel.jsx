@@ -8,6 +8,13 @@ import { useThemeStore } from '../store/themeStore'
 const MAX_MESSAGES = 50
 const CHAT_KEY = (userId) => `edupilot_chat_${userId}`
 
+function normalizeMessages(messages) {
+  return messages.filter((message, index) => {
+    const previous = messages[index - 1]
+    return message?.role && message?.content && (previous?.role !== message.role || previous?.content !== message.content)
+  })
+}
+
 export function AssistantPanel() {
   const location = useLocation()
   const navigate = useNavigate()
@@ -30,7 +37,7 @@ export function AssistantPanel() {
       if (stored) {
         const parsed = JSON.parse(stored)
         if (Array.isArray(parsed)) {
-          setMessages(parsed.filter((m) => m?.role && m?.content))
+          queueMicrotask(() => setMessages(normalizeMessages(parsed)))
         }
       }
     } catch {
@@ -91,16 +98,15 @@ export function AssistantPanel() {
     if (!trimmed || mutation.isPending) return
 
     const history = messages.slice(-20)
-    const nextMessages = [...history, { role: 'user', content: trimmed }]
     setMessages((prev) => {
-      const updated = [...prev, { role: 'user', content: trimmed }]
+      const updated = normalizeMessages([...prev, { role: 'user', content: trimmed }])
       return updated.slice(-MAX_MESSAGES)
     })
     setInput('')
 
     mutation.mutate({
       question: trimmed,
-      history: nextMessages.map(({ role, content }) => ({ role, content })),
+      history: history.map(({ role, content }) => ({ role, content })),
     })
   }
 

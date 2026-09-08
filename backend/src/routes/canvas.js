@@ -13,6 +13,7 @@ import {
   saveCanvasProfile,
   testCanvasConnection,
 } from '../services/canvas.js'
+import { syncCanvasKnowledge } from '../services/canvasKnowledge.js'
 
 const router = Router()
 
@@ -61,6 +62,17 @@ router.post('/sync', requireAuth, async (req, res) => {
       error: 'Canvas sync failed',
       detail: error.message,
     })
+  }
+})
+
+router.post('/knowledge-sync', requireAuth, async (req, res) => {
+  if (!req.user?.id) return res.status(401).json({ error: 'Not authenticated' })
+
+  try {
+    const result = await syncCanvasKnowledge(req.user.id)
+    return res.json({ success: true, ...result })
+  } catch (error) {
+    return res.status(502).json({ error: 'Canvas knowledge sync failed', detail: error.message })
   }
 })
 

@@ -100,7 +100,7 @@ function parseLinkHeader(header) {
   return links
 }
 
-async function fetchCanvasPaged(userId, path) {
+export async function fetchCanvasPaged(userId, path) {
   const { baseUrl, token } = await getCredentials(userId)
   const items = []
   let nextUrl = path.startsWith('http') ? path : `${baseUrl}${path}`
@@ -135,6 +135,37 @@ async function fetchCanvasPaged(userId, path) {
   }
 
   return items
+}
+
+export async function fetchCanvasBinary(userId, path) {
+  const { baseUrl, token } = await getCredentials(userId)
+  const url = path.startsWith('http') ? path : `${baseUrl}${path}`
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  if (!response.ok) {
+    throw new Error(`Canvas responded with ${response.status} ${response.statusText}`)
+  }
+  return Buffer.from(await response.arrayBuffer())
+}
+
+export async function fetchCanvasAnnouncements(userId, courseIds) {
+  const params = new URLSearchParams()
+  courseIds.forEach((id) => params.append('context_codes[]', `course_${id}`))
+  params.set('active_only', 'true')
+  return fetchCanvasPaged(userId, `/api/v1/announcements?${params.toString()}`)
+}
+
+export async function fetchCanvasModules(userId, courseId) {
+  return fetchCanvasPaged(userId, `/api/v1/courses/${courseId}/modules?include[]=items&per_page=100`)
+}
+
+export async function fetchCanvasPage(userId, courseId, pageUrl) {
+  return fetchCanvasResource(userId, `/api/v1/courses/${courseId}/pages/${encodeURIComponent(pageUrl)}`)
+}
+
+export async function fetchCanvasFrontPage(userId, courseId) {
+  return fetchCanvasResource(userId, `/api/v1/courses/${courseId}/front_page`)
 }
 
 export async function testCanvasConnection(userId) {

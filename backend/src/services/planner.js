@@ -112,7 +112,7 @@ function allocateBlocks(
     let remainingMinutes = Math.round(task.remainingHours * 60)
     let slotIndex = 0
 
-    while (remainingMinutes > 0 && slotIndex < slots.length) {
+    while (remainingMinutes > BUFFER_MINUTES && slotIndex < slots.length) {
       const slot = slots[slotIndex]
       const available = diffMinutes(slot.start, slot.end)
       if (available <= 0) {
@@ -141,7 +141,7 @@ function allocateBlocks(
       }
     }
 
-    if (remainingMinutes > 0) {
+    if (remainingMinutes > BUFFER_MINUTES) {
       unscheduledTasks.push(task.title)
     }
   }

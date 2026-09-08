@@ -1,27 +1,17 @@
-const API_BASE = (import.meta.env.VITE_API_URL || (import.meta.env.DEV ? '/api' : '')).replace(/\/$/, '')
+const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:4000'
 const authSkipRefresh = new Set(['/auth/login', '/auth/signup', '/auth/refresh'])
 
 async function rawRequest(path, options) {
+  const isFormData = options?.body instanceof FormData
   return fetch(`${API_BASE}${path}`, {
     credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(options?.headers ?? {}),
-    },
+    headers: isFormData ? options?.headers : { 'Content-Type': 'application/json', ...(options?.headers ?? {}) },
     ...options,
   })
 }
 
 async function request(path, options, retryAuth = true) {
-  let response
-  try {
-    response = await rawRequest(path, options)
-  } catch (error) {
-    throw new Error(
-      `Unable to connect to EduPilot API. Check that the backend is running and VITE_API_URL points to it.`,
-      { cause: error },
-    )
-  }
+  const response = await rawRequest(path, options)
 
   if (response.status === 401 && retryAuth && !authSkipRefresh.has(path)) {
     const refreshResponse = await rawRequest('/auth/refresh', { method: 'POST' })
@@ -31,10 +21,18 @@ async function request(path, options, retryAuth = true) {
   }
 
   if (!response.ok) {
-    const message = await response.text()
+    const body = await response.text()
+    let message = body
+    try {
+      const parsed = JSON.parse(body)
+      message = parsed.error || parsed.detail || body
+    } catch {
+      // Keep plain-text error responses readable.
+    }
     throw new Error(message || `Request failed with status ${response.status}`)
   }
 
+  if (response.status === 204) return null
   return await response.json()
 }
 
@@ -56,6 +54,21 @@ export const authApi = {
   },
   async me() {
     return request('/auth/me')
+  },
+}
+
+export const knowledgeApi = {
+  async list() {
+    return request('/knowledge/documents')
+  },
+  async upload(file, courseId) {
+    const body = new FormData()
+    body.append('file', file)
+    if (courseId) body.append('courseId', courseId)
+    return request('/knowledge/documents', { method: 'POST', body })
+  },
+  async remove(id) {
+    return request(`/knowledge/documents/${id}`, { method: 'DELETE' })
   },
 }
 
@@ -82,6 +95,11 @@ export const canvasApi = {
   },
   sync() {
     return request('/canvas/sync', {
+      method: 'POST',
+    })
+  },
+  knowledgeSync() {
+    return request('/canvas/knowledge-sync', {
       method: 'POST',
     })
   },

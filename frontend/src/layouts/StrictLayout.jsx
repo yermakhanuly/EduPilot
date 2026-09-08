@@ -14,7 +14,7 @@ export function StrictLayout() {
   usePageTitle()
   const navigate = useNavigate()
   const { active, mode, endsAt, exit } = useStrictStore()
-  const [now, setNow] = useState(Date.now())
+  const [now, setNow] = useState(() => Date.now())
 
   useEffect(() => {
     const interval = setInterval(() => setNow(Date.now()), 1000)

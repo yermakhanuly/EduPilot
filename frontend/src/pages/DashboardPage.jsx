@@ -57,31 +57,31 @@ export function DashboardPage() {
           </div>
         </div>
         <div className="stat-grid">
-          <div className="stat-card warn">
+          <div className="stat-card">
             <p className="label">Next deadline</p>
             <div className="stat-value">{nextDeadline ? nextDeadline.title : 'No tasks yet'}</div>
             <span className="pill pill-warn">{formatDeadline(nextDeadline)}</span>
           </div>
-          <div className="stat-card xp">
+          <div className="stat-card">
             <p className="label">XP this week</p>
             <div className="stat-value">{stats?.weeklyXp ?? 0} XP</div>
-            <span className="pill pill-xp">Total {stats?.totalXp ?? 0} XP</span>
+            <span className="pill pill-accent">Total {stats?.totalXp ?? 0} XP</span>
           </div>
-          <div className="stat-card level">
+          <div className="stat-card">
             <p className="label">Strict Mode</p>
             <div className="stat-value">45m / 10m cadence</div>
             <span className="pill pill-quiet">distractions blocked</span>
           </div>
-          <div className="stat-card streak">
+          <div className="stat-card">
             <p className="label">Streak</p>
             <div className="stat-value">Day {stats?.streak ?? 0}</div>
-            <span className="pill pill-level">Level {level?.level ?? 1}</span>
+            <span className="pill pill-accent">Level {level?.level ?? 1}</span>
           </div>
         </div>
       </header>
 
-      <main className="grid">
-        <section className="panel wide">
+      <main className="grid dashboard-grid">
+        <section className="panel dashboard-focus">
           <div className="section-head">
             <div>
               <p className="label">Today&apos;s flight plan</p>
@@ -117,7 +117,7 @@ export function DashboardPage() {
           )}
         </section>
 
-        <section className="panel">
+        <section className="panel dashboard-insights">
           <div className="section-head">
             <div>
               <p className="label">Coaching</p>
@@ -131,7 +131,7 @@ export function DashboardPage() {
           </div>
         </section>
 
-        <section className="panel">
+        <section className="panel dashboard-level">
           <div className="section-head">
             <div>
               <p className="label">Progression</p>
@@ -158,7 +158,7 @@ export function DashboardPage() {
           </div>
         </section>
 
-        <section className="panel wide">
+        <section className="panel dashboard-tasks">
           <div className="section-head">
             <div>
               <p className="label">Active quests</p>
@@ -191,7 +191,7 @@ export function DashboardPage() {
           )}
         </section>
 
-        <section className="panel">
+        <section className="panel dashboard-rewards">
           <div className="section-head">
             <div>
               <p className="label">Rewards</p>

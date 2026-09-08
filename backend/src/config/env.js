@@ -15,6 +15,11 @@ const envSchema = z.object({
     .default('false'),
   ENCRYPTION_KEY: z.string().min(32),
   GROQ_API_KEY: z.string().optional(),
+  GEMINI_API_KEY: z.string().optional(),
+  GEMINI_EMBEDDING_MODEL: z.string().default('gemini-embedding-001'),
+  GEMINI_EMBEDDING_DIMENSIONS: z.coerce.number().int().positive().default(768),
+  CHROMA_URL: z.string().url().default('http://localhost:8000'),
+  DOCUMENT_MAX_SIZE_MB: z.coerce.number().positive().default(10),
   CANVAS_WEBHOOK_SECRET: z.string().optional(),
   CANVAS_SYNC_INTERVAL_MINUTES: z.coerce.number().int().min(0).default(60),
 })

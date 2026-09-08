@@ -47,6 +47,10 @@ router.post('/ask', requireAuth, async (req, res) => {
 
     return res.json(await runAssistant({ userId, question: parsed.data.question, history: (parsed.data.history ?? []).slice(-20), context, apiKey: env.GROQ_API_KEY }))
   } catch (error) {
+    const status = error.status ?? error.statusCode ?? 500
+    if (status === 429) {
+      return res.status(429).json({ error: 'The AI service rate limit was reached. Please wait a moment and try again.' })
+    }
     return res.status(500).json({ error: 'Groq assistant request failed', detail: error.message })
   }
 })
