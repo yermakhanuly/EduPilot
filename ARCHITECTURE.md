@@ -28,7 +28,7 @@ A complete map of every file, every technology, and every end-to-end pipeline in
                          ▼                       ▼
          ┌──────────────────────┐   ┌────────────────────────┐
          │  PostgreSQL (Prisma) │   │  External APIs          │
-         │  10 tables           │   │  • Groq LLM             │
+         │  10 tables           │   │  • Anthropic Claude     │
          │                      │   │  • Canvas LMS           │
          └──────────────────────┘   └────────────────────────┘
 
@@ -84,7 +84,7 @@ Two independent apps: **backend** (Express) and **frontend** (React). They commu
 | Tech | Purpose |
 |---|---|
 | **JWT in httpOnly cookies** | Prevents XSS from reading tokens. `credentials: 'include'` on the fetch client sends them automatically. |
-| **LangGraph + Groq tool calling** | The `/assistant` route invokes a LangGraph agent backed by Groq; the model calls backend tools (add_task, generate_plan, …) instead of producing plain text. |
+| **LangGraph + Anthropic tool calling** | The `/assistant` route invokes a LangGraph agent backed by Claude; the model calls backend tools (add_task, generate_plan, …) instead of producing plain text. |
 | **Gemini + ChromaDB RAG** | Gemini `gemini-embedding-001` creates embeddings for uploaded materials and Canvas course content; ChromaDB performs user/course-scoped similarity search. |
 | **Document ingestion** | PDF, DOCX, PPTX, TXT, Markdown, and HTML files are parsed and chunked for retrieval. Office images and slide visuals are not indexed. |
 | **Docker Compose** | Runs PostgreSQL, ChromaDB, the Express backend, and the Nginx-served frontend with persistent database and vector-store volumes. |
@@ -168,7 +168,7 @@ Bootstraps the Express app.
 7. `app.listen(env.PORT)` and kicks off `scheduleCanvasSync(...)`.
 
 ### `backend/src/config/env.js`
-Zod schema for every env var. **Fails the process on boot** if something required is missing (DATABASE_URL, JWT secrets, ENCRYPTION_KEY ≥ 32 chars). Optional vars include GROQ_API_KEY, GEMINI_API_KEY, GEMINI_EMBEDDING_MODEL, GEMINI_EMBEDDING_DIMENSIONS, CHROMA_URL, DOCUMENT_MAX_SIZE_MB, CANVAS_WEBHOOK_SECRET, COOKIE_DOMAIN, and CANVAS_SYNC_INTERVAL_MINUTES (default 60).
+Zod schema for every env var. **Fails the process on boot** if something required is missing (DATABASE_URL, JWT secrets, ENCRYPTION_KEY ≥ 32 chars). Optional vars include ANTHROPIC_API_KEY, GEMINI_API_KEY, GEMINI_EMBEDDING_MODEL, GEMINI_EMBEDDING_DIMENSIONS, CHROMA_URL, DOCUMENT_MAX_SIZE_MB, CANVAS_WEBHOOK_SECRET, COOKIE_DOMAIN, and CANVAS_SYNC_INTERVAL_MINUTES (default 60).
 
 ### `backend/src/config/prisma.js`
 Exports a single `PrismaClient` instance. Reused everywhere to pool DB connections.
@@ -554,10 +554,10 @@ systemMessages = [
 ]
       │
       ▼
-LangGraph agent invocation with Groq and typed LangChain tools
+LangGraph agent invocation with Anthropic Claude and typed LangChain tools
       │
       ▼
-The Groq-backed agent calls tools as needed. Tools available:
+The Claude-backed agent calls tools as needed. Tools available:
    add_class, remove_class, add_task, remove_task,
    add_event, remove_event, generate_plan,
    set_theme, navigate, send_reply
@@ -674,7 +674,8 @@ React Query is the glue: mutations return, `invalidateQueries` is called, affect
 | `CORS_ORIGIN` | — (`http://localhost:5173`) | Comma-separated allowed origins. |
 | `COOKIE_SECURE` | — (`false`) | Set `true` in prod for HTTPS cookies. |
 | `COOKIE_DOMAIN` | — | Set to your domain in prod. |
-| `GROQ_API_KEY` | optional | Enables `/assistant`. |
+| `ANTHROPIC_API_KEY` | optional | Enables `/assistant` chat. |
+| `GEMINI_API_KEY` | optional | Enables document/course embeddings. |
 | `CANVAS_WEBHOOK_SECRET` | optional | Enables webhook signature verification. |
 | `CANVAS_SYNC_INTERVAL_MINUTES` | — (60) | Background sync cadence, set 0 to disable. |
 

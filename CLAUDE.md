@@ -86,7 +86,7 @@ Generates `StudyBlock` records for a given week:
 - Gemini `gemini-embedding-001` creates document and query embeddings.
 - ChromaDB stores and searches embeddings with user/course metadata filters.
 - Canvas sync indexes course front pages, module pages, files, and announcements.
-- The assistant combines retrieved excerpts with live planner context before calling the Groq model.
+- The assistant combines retrieved excerpts with live planner context before calling the Anthropic model.
 
 ### Canvas LMS Integration (`routes/canvas.js`, `services/canvas.js`)
 - Connects via user-supplied Canvas API token (stored AES-encrypted in `IntegrationCanvas.tokenEncrypted`)
@@ -95,7 +95,7 @@ Generates `StudyBlock` records for a given week:
 - Background polling via `canvasSync.js` (interval from `CANVAS_SYNC_INTERVAL_MINUTES`)
 
 ### AI Assistant (`routes/assistant.js`)
-- Uses LangGraph/LangChain with Groq `qwen/qwen3.6-27b`
+- Uses LangGraph/LangChain with Anthropic Claude `claude-haiku-4-5-20251001`
 - Uses Gemini embeddings and ChromaDB retrieval when relevant course or document content is available
 - Builds context from user's tasks, classes, events, stats, next 12 study blocks, and retrieved knowledge excerpts
 - Caps conversation history at 20 messages; temperature 0.3, max 400 tokens
@@ -114,7 +114,7 @@ ENCRYPTION_KEY        # 32+ char key for Canvas token encryption
 ```
 PORT                        # default: 4000
 CORS_ORIGIN                 # comma-separated origins, default: http://localhost:5173
-GROQ_API_KEY                # enables AI assistant
+ANTHROPIC_API_KEY            # enables AI assistant chat
 GEMINI_API_KEY              # enables document/course RAG embeddings
 GEMINI_EMBEDDING_MODEL      # default: gemini-embedding-001
 GEMINI_EMBEDDING_DIMENSIONS # default: 768

@@ -15,6 +15,7 @@ const navItems = [
   { to: '/app/settings', label: 'Settings' },
   { to: '/app/integrations/canvas', label: 'Canvas' },
   { to: '/app/materials', label: 'Materials' },
+  { to: '/app/assistant', label: 'Assistant' },
 ]
 
 export function AppLayout() {

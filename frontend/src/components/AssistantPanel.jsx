@@ -1,72 +1,59 @@
 import { useEffect, useRef, useState } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { assistantApi } from '../api/client'
-import { useAuthStore } from '../store/authStore'
 import { useThemeStore } from '../store/themeStore'
+import { useAssistantStore } from '../store/assistantStore'
 
-const MAX_MESSAGES = 50
-const CHAT_KEY = (userId) => `edupilot_chat_${userId}`
-
-function normalizeMessages(messages) {
-  return messages.filter((message, index) => {
-    const previous = messages[index - 1]
-    return message?.role && message?.content && (previous?.role !== message.role || previous?.content !== message.content)
-  })
-}
+const EMPTY_MESSAGES = []
 
 export function AssistantPanel() {
   const location = useLocation()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const user = useAuthStore((state) => state.user)
   const setTheme = useThemeStore((state) => state.setTheme)
+  const activeConversationId = useAssistantStore((state) => state.activeConversationId)
+  const setActiveConversationId = useAssistantStore((state) => state.setActiveConversationId)
 
   const [open, setOpen] = useState(false)
   const [input, setInput] = useState('')
-  const [messages, setMessages] = useState([])
+  const [pendingMessage, setPendingMessage] = useState(null)
   const streamRef = useRef(null)
 
-  const storageKey = user?.id ? CHAT_KEY(user.id) : null
-
-  // Load history from localStorage when user is available
-  useEffect(() => {
-    if (!storageKey) return
-    try {
-      const stored = localStorage.getItem(storageKey)
-      if (stored) {
-        const parsed = JSON.parse(stored)
-        if (Array.isArray(parsed)) {
-          queueMicrotask(() => setMessages(normalizeMessages(parsed)))
-        }
-      }
-    } catch {
-      // ignore parse errors
-    }
-  }, [storageKey])
-
-  // Persist messages to localStorage
-  useEffect(() => {
-    if (!storageKey) return
-    localStorage.setItem(storageKey, JSON.stringify(messages))
-  }, [messages, storageKey])
+  const conversationsQuery = useQuery({
+    queryKey: ['assistant-conversations'],
+    queryFn: () => assistantApi.listConversations(),
+  })
+  const conversations = conversationsQuery.data?.conversations ?? EMPTY_MESSAGES
+  const selectedConversationId = conversations.some((conversation) => conversation.id === activeConversationId)
+    ? activeConversationId
+    : conversations[0]?.id ?? null
+  const messagesQuery = useQuery({
+    queryKey: ['assistant-messages', selectedConversationId],
+    queryFn: () => assistantApi.messages(selectedConversationId),
+    enabled: open && Boolean(selectedConversationId),
+  })
+  const messages = messagesQuery.data?.messages ?? EMPTY_MESSAGES
 
   // Scroll to bottom when messages change or panel opens
   useEffect(() => {
     if (open && streamRef.current) {
       streamRef.current.scrollTop = streamRef.current.scrollHeight
     }
-  }, [messages, open])
+  }, [messages, open, pendingMessage])
 
   const mutation = useMutation({
-    mutationFn: (payload) => assistantApi.ask(payload),
+    mutationFn: ({ id, content }) => assistantApi.sendMessage(id, content),
     onSuccess: (data) => {
-      if (data?.answer) {
-        setMessages((prev) => {
-          const next = [...prev, { role: 'assistant', content: data.answer }]
-          return next.slice(-MAX_MESSAGES)
-        })
-      }
+      setPendingMessage(null)
+      setActiveConversationId(data.conversation.id)
+      queryClient.setQueryData(['assistant-messages', data.conversation.id], (current) => ({
+        ...(current ?? {}),
+        conversation: data.conversation,
+        messages: [...(current?.messages ?? EMPTY_MESSAGES), data.userMessage, data.assistantMessage],
+      }))
+      queryClient.invalidateQueries({ queryKey: ['assistant-messages', data.conversation.id] })
+      queryClient.invalidateQueries({ queryKey: ['assistant-conversations'] })
 
       // Handle client-side actions
       if (Array.isArray(data?.clientActions)) {
@@ -87,6 +74,15 @@ export function AssistantPanel() {
         }
       }
     },
+    onError: () => setPendingMessage((message) => message ? { ...message, failed: true } : null),
+  })
+
+  const createConversation = useMutation({
+    mutationFn: () => assistantApi.createConversation(),
+    onSuccess: ({ conversation }) => {
+      setActiveConversationId(conversation.id)
+      queryClient.invalidateQueries({ queryKey: ['assistant-conversations'] })
+    },
   })
 
   // Hide on settings page
@@ -96,17 +92,15 @@ export function AssistantPanel() {
     event.preventDefault()
     const trimmed = input.trim()
     if (!trimmed || mutation.isPending) return
-
-    const history = messages.slice(-20)
-    setMessages((prev) => {
-      const updated = normalizeMessages([...prev, { role: 'user', content: trimmed }])
-      return updated.slice(-MAX_MESSAGES)
-    })
     setInput('')
-
-    mutation.mutate({
-      question: trimmed,
-      history: history.map(({ role, content }) => ({ role, content })),
+    setPendingMessage({ id: `pending-${Date.now()}`, content: trimmed })
+    if (selectedConversationId) {
+      mutation.mutate({ id: selectedConversationId, content: trimmed })
+      return
+    }
+    createConversation.mutate(undefined, {
+      onSuccess: ({ conversation }) => mutation.mutate({ id: conversation.id, content: trimmed }),
+      onError: () => setPendingMessage((message) => message ? { ...message, failed: true } : null),
     })
   }
 
@@ -137,26 +131,27 @@ export function AssistantPanel() {
             <span className="label">AI Assistant</span>
             <p style={{ margin: 0, fontWeight: 600, fontSize: 15 }}>Ask EduPilot</p>
           </div>
-          <span className="pill pill-accent" style={{ fontSize: 11 }}>Groq</span>
+          <div className="assistant-panel-header-actions"><button className="icon-action" type="button" title="Open full assistant" aria-label="Open full assistant" onClick={() => { navigate('/app/assistant'); setOpen(false) }}>Expand</button><span className="pill pill-accent" style={{ fontSize: 11 }}>Claude</span></div>
         </div>
 
         <div className="assistant-stream assistant-panel-stream" ref={streamRef}>
-          {messages.length === 0 ? (
+          {messages.length === 0 && !pendingMessage ? (
             <div className="assistant-empty">
               <p className="muted" style={{ fontSize: 13 }}>
                 Ask me anything — I can add classes, tasks, events, generate your study plan, switch themes, and more.
               </p>
             </div>
           ) : (
-            messages.map((msg, i) => (
+            messages.map((msg) => (
               <div
-                key={`${msg.role}-${i}`}
+                key={msg.id}
                 className={`assistant-bubble ${msg.role === 'user' ? 'user' : 'assistant'}`}
               >
                 <p className="assistant-text">{msg.content}</p>
               </div>
             ))
           )}
+          {pendingMessage ? <div className={`assistant-bubble user${pendingMessage.failed ? ' failed' : ''}`}><p className="assistant-text">{pendingMessage.content}</p>{pendingMessage.failed ? <button className="message-edit-button" type="button" onClick={() => { setInput(pendingMessage.content); setPendingMessage(null) }}>Retry message</button> : null}</div> : null}
           {mutation.isPending && (
             <div className="assistant-bubble assistant">
               <p className="assistant-text muted">Thinking…</p>

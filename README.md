@@ -68,8 +68,8 @@ JWT_REFRESH_SECRET=your_refresh_secret
 ENCRYPTION_KEY=32+_chars_minimum
 COOKIE_DOMAIN=
 COOKIE_SECURE=false
-GROQ_API_KEY=optional
-GEMINI_API_KEY=optional_for_document_RAG
+ANTHROPIC_API_KEY=optional_for_AI_assistant_chat
+GEMINI_API_KEY=optional_for_document_RAG_embeddings
 GEMINI_EMBEDDING_MODEL=gemini-embedding-001
 GEMINI_EMBEDDING_DIMENSIONS=768
 CHROMA_URL=http://localhost:8000
@@ -120,12 +120,12 @@ proxy at `/api` and are forwarded to `http://localhost:4000`.
 ## Troubleshooting
 - **Login/session issues:** check `CORS_ORIGIN`, `COOKIE_DOMAIN`, and `COOKIE_SECURE`.
 - **Canvas sync errors:** verify token and base URL, and set `CANVAS_SYNC_INTERVAL_MINUTES=0` if you want manual sync only.
-- **AI helper errors:** ensure `GROQ_API_KEY` is set.
+- **AI helper errors:** ensure `ANTHROPIC_API_KEY` is set.
 - **Document RAG errors:** ensure `GEMINI_API_KEY` and `CHROMA_URL` are configured. Uploaded documents support PDF, DOCX, PPTX, TXT, Markdown, and HTML formats. DOCX/PPTX files are indexed for text content; embedded images and slide visuals are not indexed in this first version.
 
 ## Run With Docker Compose
 
-Create `backend/.env` with the required application secrets and optionally add `GEMINI_API_KEY`. Then run:
+Create `backend/.env` with the required application secrets and optionally add `ANTHROPIC_API_KEY` for chat and `GEMINI_API_KEY` for document RAG. Then run:
 
 ```bash
 docker compose up --build

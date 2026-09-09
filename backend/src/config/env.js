@@ -14,7 +14,7 @@ const envSchema = z.object({
     .transform((value) => value === true || value === 'true')
     .default('false'),
   ENCRYPTION_KEY: z.string().min(32),
-  GROQ_API_KEY: z.string().optional(),
+  ANTHROPIC_API_KEY: z.string().optional(),
   GEMINI_API_KEY: z.string().optional(),
   GEMINI_EMBEDDING_MODEL: z.string().default('gemini-embedding-001'),
   GEMINI_EMBEDDING_DIMENSIONS: z.coerce.number().int().positive().default(768),

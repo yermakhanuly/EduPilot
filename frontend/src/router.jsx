@@ -3,6 +3,7 @@ import { AppLayout } from './layouts/AppLayout'
 import { PublicLayout } from './layouts/PublicLayout'
 import { StrictLayout } from './layouts/StrictLayout'
 import { CanvasIntegrationPage } from './pages/CanvasIntegrationPage'
+import { AssistantPage } from './pages/AssistantPage'
 import { DashboardPage } from './pages/DashboardPage'
 import { LandingPage } from './pages/LandingPage'
 import { MaterialsPage } from './pages/MaterialsPage'
@@ -34,6 +35,7 @@ export const router = createBrowserRouter(
         <Route path="settings" element={<SettingsPage />} />
         <Route path="integrations/canvas" element={<CanvasIntegrationPage />} />
         <Route path="materials" element={<MaterialsPage />} />
+        <Route path="assistant" element={<AssistantPage />} />
       </Route>
 
       <Route path="/app/strict" element={<StrictLayout />}>

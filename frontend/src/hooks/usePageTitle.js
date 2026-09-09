@@ -14,6 +14,7 @@ const titleMap = {
   '/app/settings': 'Settings',
   '/app/integrations/canvas': 'Canvas',
   '/app/materials': 'Materials',
+  '/app/assistant': 'AI Assistant',
   '/app/strict': 'Strict Mode',
 }
 

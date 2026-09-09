@@ -200,10 +200,50 @@ export const rewardsApi = {
 }
 
 export const assistantApi = {
+  courses() {
+    return request('/assistant/courses')
+  },
   ask(payload) {
     return request('/assistant/ask', {
       method: 'POST',
       body: JSON.stringify(payload),
     })
+  },
+  listConversations(search = '') {
+    const query = search ? `?search=${encodeURIComponent(search)}` : ''
+    return request(`/assistant/conversations${query}`)
+  },
+  createConversation(payload = {}) {
+    return request('/assistant/conversations', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  },
+  updateConversation(id, payload) {
+    return request(`/assistant/conversations/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    })
+  },
+  removeConversation(id) {
+    return request(`/assistant/conversations/${id}`, { method: 'DELETE' })
+  },
+  messages(id) {
+    return request(`/assistant/conversations/${id}/messages`)
+  },
+  sendMessage(id, content) {
+    return request(`/assistant/conversations/${id}/messages`, {
+      method: 'POST',
+      body: JSON.stringify({ content }),
+    })
+  },
+  branchMessage(id, content) {
+    return request(`/assistant/messages/${id}/branch`, {
+      method: 'POST',
+      body: JSON.stringify({ content }),
+    })
+  },
+  regenerateMessage(id) {
+    return request(`/assistant/messages/${id}/regenerate`, { method: 'POST' })
   },
 }
