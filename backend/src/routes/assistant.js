@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { env } from '../config/env.js'
 import { prisma } from '../config/prisma.js'
 import { requireAuth } from '../middleware/requireAuth.js'
+import { createAssistantRateLimiter } from '../middleware/assistantRateLimit.js'
 import { generateConversationTitle, runAssistant } from '../services/assistantAgent.js'
 
 const router = Router()
@@ -18,6 +19,7 @@ const updateConversationSchema = z.object({
   courseId: z.string().uuid().nullable().optional(),
 })
 const messageSchema = z.object({ content: z.string().trim().min(1).max(12000) })
+const assistantRateLimit = createAssistantRateLimiter({ limit: env.ASSISTANT_RATE_LIMIT, windowMs: env.ASSISTANT_RATE_WINDOW_MINUTES * 60_000 })
 
 function formatClasses(classes) {
   if (!classes.length) return 'No weekly classes set.'
@@ -121,7 +123,7 @@ router.get('/conversations/:id/messages', requireAuth, async (req, res) => {
   return res.json({ conversation, messages })
 })
 
-router.post('/conversations/:id/messages', requireAuth, async (req, res) => {
+router.post('/conversations/:id/messages', requireAuth, assistantRateLimit, async (req, res) => {
   const parsed = messageSchema.safeParse(req.body)
   if (!parsed.success) return res.status(400).json({ error: 'Invalid input', issues: parsed.error.flatten() })
   if (!env.ANTHROPIC_API_KEY) return res.status(400).json({ error: 'Anthropic API key not configured' })
@@ -144,9 +146,10 @@ router.post('/conversations/:id/messages', requireAuth, async (req, res) => {
       history: history.map((message) => ({ role: message.role, content: message.content })),
       context: await buildAssistantContext(userId),
       apiKey: env.ANTHROPIC_API_KEY,
+      courseId: conversation.courseId,
     })
     const assistantMessage = await prisma.chatMessage.create({
-      data: { conversationId: conversation.id, branchId: conversation.activeBranch, role: 'assistant', content: result.answer, actions: result.actionsPerformed },
+      data: { conversationId: conversation.id, branchId: conversation.activeBranch, role: 'assistant', content: result.answer, actions: result.actionsPerformed, sources: result.sources },
     })
     const title = history.length === 0
       ? await generateConversationTitle({ apiKey: env.ANTHROPIC_API_KEY, message: parsed.data.content }).catch(() => 'New chat')
@@ -164,7 +167,7 @@ router.post('/conversations/:id/messages', requireAuth, async (req, res) => {
   }
 })
 
-router.post('/messages/:id/branch', requireAuth, async (req, res) => {
+router.post('/messages/:id/branch', requireAuth, assistantRateLimit, async (req, res) => {
   const parsed = messageSchema.safeParse(req.body)
   if (!parsed.success) return res.status(400).json({ error: 'Invalid input', issues: parsed.error.flatten() })
   if (!env.ANTHROPIC_API_KEY) return res.status(400).json({ error: 'Anthropic API key not configured' })
@@ -207,9 +210,10 @@ router.post('/messages/:id/branch', requireAuth, async (req, res) => {
       history: prefix.map((message) => ({ role: message.role, content: message.content })).slice(-20),
       context: await buildAssistantContext(userId),
       apiKey: env.ANTHROPIC_API_KEY,
+      courseId: originalMessage.conversation.courseId,
     })
     const assistantMessage = await prisma.chatMessage.create({
-      data: { conversationId: originalMessage.conversationId, branchId, role: 'assistant', content: result.answer, actions: result.actionsPerformed },
+      data: { conversationId: originalMessage.conversationId, branchId, role: 'assistant', content: result.answer, actions: result.actionsPerformed, sources: result.sources },
     })
     const conversation = await prisma.conversation.update({
       where: { id: originalMessage.conversationId },
@@ -224,11 +228,12 @@ router.post('/messages/:id/branch', requireAuth, async (req, res) => {
   }
 })
 
-router.post('/messages/:id/regenerate', requireAuth, async (req, res) => {
+router.post('/messages/:id/regenerate', requireAuth, assistantRateLimit, async (req, res) => {
   if (!env.ANTHROPIC_API_KEY) return res.status(400).json({ error: 'Anthropic API key not configured' })
   const userId = req.user?.id
   const originalMessage = await prisma.chatMessage.findFirst({
     where: { id: req.params.id, role: 'assistant', conversation: { userId } },
+    include: { conversation: true },
   })
   if (!originalMessage) return res.status(404).json({ error: 'Assistant message not found' })
 
@@ -261,9 +266,10 @@ router.post('/messages/:id/regenerate', requireAuth, async (req, res) => {
       history: prefix.slice(0, -1).map((message) => ({ role: message.role, content: message.content })).slice(-20),
       context: await buildAssistantContext(userId),
       apiKey: env.ANTHROPIC_API_KEY,
+      courseId: originalMessage.conversation.courseId,
     })
     const assistantMessage = await prisma.chatMessage.create({
-      data: { conversationId: originalMessage.conversationId, branchId, role: 'assistant', content: result.answer, actions: result.actionsPerformed },
+      data: { conversationId: originalMessage.conversationId, branchId, role: 'assistant', content: result.answer, actions: result.actionsPerformed, sources: result.sources },
     })
     const conversation = await prisma.conversation.update({
       where: { id: originalMessage.conversationId },
@@ -278,7 +284,7 @@ router.post('/messages/:id/regenerate', requireAuth, async (req, res) => {
   }
 })
 
-router.post('/ask', requireAuth, async (req, res) => {
+router.post('/ask', requireAuth, assistantRateLimit, async (req, res) => {
   const parsed = askSchema.safeParse(req.body)
   if (!parsed.success) return res.status(400).json({ error: 'Invalid input', issues: parsed.error.flatten() })
   if (!env.ANTHROPIC_API_KEY) return res.status(400).json({ error: 'Anthropic API key not configured' })

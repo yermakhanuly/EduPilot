@@ -115,6 +115,8 @@ ENCRYPTION_KEY        # 32+ char key for Canvas token encryption
 PORT                        # default: 4000
 CORS_ORIGIN                 # comma-separated origins, default: http://localhost:5173
 ANTHROPIC_API_KEY            # enables AI assistant chat
+ASSISTANT_RATE_LIMIT         # assistant requests per user per window, default: 20
+ASSISTANT_RATE_WINDOW_MINUTES # rate-limit window, default: 1
 GEMINI_API_KEY              # enables document/course RAG embeddings
 GEMINI_EMBEDDING_MODEL      # default: gemini-embedding-001
 GEMINI_EMBEDDING_DIMENSIONS # default: 768

@@ -675,6 +675,8 @@ React Query is the glue: mutations return, `invalidateQueries` is called, affect
 | `COOKIE_SECURE` | — (`false`) | Set `true` in prod for HTTPS cookies. |
 | `COOKIE_DOMAIN` | — | Set to your domain in prod. |
 | `ANTHROPIC_API_KEY` | optional | Enables `/assistant` chat. |
+| `ASSISTANT_RATE_LIMIT` | — (20) | Maximum assistant requests per user per rate-limit window. |
+| `ASSISTANT_RATE_WINDOW_MINUTES` | — (1) | Assistant rate-limit window length. |
 | `GEMINI_API_KEY` | optional | Enables document/course embeddings. |
 | `CANVAS_WEBHOOK_SECRET` | optional | Enables webhook signature verification. |
 | `CANVAS_SYNC_INTERVAL_MINUTES` | — (60) | Background sync cadence, set 0 to disable. |

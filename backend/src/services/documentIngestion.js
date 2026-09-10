@@ -52,6 +52,33 @@ async function extractText(buffer, mimeType, filename) {
   throw new Error('Only PDF, DOCX, PPTX, and text documents are supported')
 }
 
+async function extractChunks(buffer, mimeType, filename) {
+  const extension = path.extname(filename).toLowerCase()
+  if (mimeType === 'application/pdf' || extension === '.pdf') {
+    const parser = new PDFParse({ data: buffer })
+    try {
+      const result = await parser.getText()
+      return result.pages.flatMap((page) => splitIntoChunks(cleanText(page.text)).map((text) => ({ text, pageNumber: page.num })))
+    } finally {
+      await parser.destroy()
+    }
+  }
+  if (extension === '.pptx') {
+    const ast = await OfficeParser.parseOffice(buffer)
+    const result = await ast.to('chunks', { strategy: 'document-structure', splitBy: 'slide', maxChunkSize: 3500 })
+    return result.value
+      .filter((chunk) => chunk?.text)
+      .map((chunk) => ({
+        text: cleanText(chunk.text),
+        slideNumber: chunk.metadata?.slideNumber,
+        heading: chunk.metadata?.closestHeading,
+      }))
+      .filter((chunk) => chunk.text)
+  }
+  const text = cleanText(await extractText(buffer, mimeType, filename))
+  return splitIntoChunks(text).map((text) => ({ text }))
+}
+
 export function isSupportedDocument(filename, mimeType = '') {
   const extension = path.extname(filename).toLowerCase()
   return ['.pdf', '.docx', '.pptx', '.txt', '.md', '.html', '.htm'].includes(extension)
@@ -61,14 +88,13 @@ export function isSupportedDocument(filename, mimeType = '') {
 }
 
 export async function ingestDocument({ documentId, userId, title, filename, mimeType, buffer, courseId, sourceType = 'upload' }) {
-  const text = cleanText(await extractText(buffer, mimeType, filename))
-  if (!text) throw new Error('The document does not contain extractable text')
+  const chunks = await extractChunks(buffer, mimeType, filename)
+  if (!chunks.length) throw new Error('The document does not contain extractable text')
 
-  const chunks = splitIntoChunks(text)
-  const embeddings = await embedDocuments(chunks)
+  const embeddings = await embedDocuments(chunks.map((chunk) => chunk.text))
   const records = chunks.map((chunk, index) => ({
     id: `${documentId}:${index}`,
-    text: chunk,
+    text: chunk.text,
     embedding: embeddings[index],
     metadata: {
       userId,
@@ -77,6 +103,9 @@ export async function ingestDocument({ documentId, userId, title, filename, mime
       sourceType,
       title,
       chunkIndex: index,
+      pageNumber: chunk.pageNumber ?? 0,
+      slideNumber: chunk.slideNumber ?? 0,
+      heading: chunk.heading ?? '',
     },
   }))
 

@@ -1475,6 +1475,15 @@
   padding: 18px;
 }
 
+.conversation-sidebar-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.conversation-drawer-close {
+  display: none;
+}
+
 .conversation-sidebar h2,
 .conversation-header h1 {
   margin: 3px 0 0;
@@ -1592,6 +1601,10 @@
   border-bottom: 1px solid var(--border);
 }
 
+.conversation-drawer-toggle {
+  display: none;
+}
+
 .conversation-course {
   display: grid;
   gap: 4px;
@@ -1679,6 +1692,10 @@
   background: var(--panel-muted);
 }
 
+.regeneration-status {
+  border-style: dashed;
+}
+
 .message-actions {
   display: grid;
   gap: 4px;
@@ -1687,6 +1704,43 @@
   border-top: 1px solid var(--border);
   color: var(--success);
   font-size: 12px;
+}
+
+.message-sources {
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.message-sources summary {
+  cursor: pointer;
+  color: var(--accent);
+}
+
+.message-source {
+  display: grid;
+  gap: 3px;
+  margin-top: 10px;
+  padding: 8px;
+  border-left: 2px solid var(--accent);
+  background: var(--panel);
+}
+
+.message-source span {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: capitalize;
+}
+
+.message-source p {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 2px 0 0;
+  color: var(--muted);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
 }
 
 .conversation-composer {
@@ -1725,6 +1779,7 @@
 
 @media (max-width: 760px) {
   .assistant-workspace {
+    position: relative;
     grid-template-columns: 1fr;
     height: calc(100dvh - 122px);
     min-height: 460px;
@@ -1732,9 +1787,24 @@
   }
 
   .conversation-sidebar {
-    max-height: 280px;
-    border-right: none;
-    border-bottom: 1px solid var(--border);
+    display: none;
+  }
+
+  .assistant-workspace.conversations-open .conversation-sidebar {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    display: flex;
+    max-height: none;
+    border: none;
+  }
+
+  .conversation-drawer-toggle {
+    display: inline-flex;
+  }
+
+  .conversation-drawer-close {
+    display: inline-flex;
   }
 
   .conversation-header {

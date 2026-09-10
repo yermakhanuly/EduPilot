@@ -69,6 +69,8 @@ ENCRYPTION_KEY=32+_chars_minimum
 COOKIE_DOMAIN=
 COOKIE_SECURE=false
 ANTHROPIC_API_KEY=optional_for_AI_assistant_chat
+ASSISTANT_RATE_LIMIT=20
+ASSISTANT_RATE_WINDOW_MINUTES=1
 GEMINI_API_KEY=optional_for_document_RAG_embeddings
 GEMINI_EMBEDDING_MODEL=gemini-embedding-001
 GEMINI_EMBEDDING_DIMENSIONS=768
@@ -122,6 +124,7 @@ proxy at `/api` and are forwarded to `http://localhost:4000`.
 - **Canvas sync errors:** verify token and base URL, and set `CANVAS_SYNC_INTERVAL_MINUTES=0` if you want manual sync only.
 - **AI helper errors:** ensure `ANTHROPIC_API_KEY` is set.
 - **Document RAG errors:** ensure `GEMINI_API_KEY` and `CHROMA_URL` are configured. Uploaded documents support PDF, DOCX, PPTX, TXT, Markdown, and HTML formats. DOCX/PPTX files are indexed for text content; embedded images and slide visuals are not indexed in this first version.
+- **Canvas knowledge sync:** individual files that cannot be fetched or embedded are marked as failed and skipped; other course materials continue indexing. Check the Materials page for the stored failure reason.
 
 ## Run With Docker Compose
 

@@ -22,6 +22,12 @@ async function getCollection() {
   return collectionPromise
 }
 
+export function buildKnowledgeWhere(userId, courseId) {
+  return courseId
+    ? { $and: [{ userId }, { courseId }] }
+    : { userId }
+}
+
 export async function addChunks(chunks) {
   if (!chunks.length) return
   const collection = await getCollection()
@@ -35,13 +41,10 @@ export async function addChunks(chunks) {
 
 export async function searchChunks({ embedding, userId, courseId, limit = 5 }) {
   const collection = await getCollection()
-  const where = courseId
-    ? { $and: [{ userId }, { courseId }] }
-    : { userId }
   const result = await collection.query({
     queryEmbeddings: [embedding],
     nResults: limit,
-    where,
+    where: buildKnowledgeWhere(userId, courseId),
     include: ['documents', 'metadatas', 'distances'],
   })
 

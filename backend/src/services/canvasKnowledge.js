@@ -24,7 +24,7 @@ async function upsertCourse(userId, course) {
   })
 }
 
-async function indexSource({ userId, courseId, sourceType, sourceId, title, mimeType, filename, buffer }) {
+export async function indexSource({ userId, courseId, sourceType, sourceId, title, mimeType, filename, buffer }) {
   const checksum = documentChecksum(buffer)
   const existing = await prisma.knowledgeDocument.findFirst({
     where: { userId, sourceType, sourceId },
@@ -40,9 +40,18 @@ async function indexSource({ userId, courseId, sourceType, sourceId, title, mime
         data: { userId, courseId, sourceType, sourceId, title, mimeType, checksum, status: 'processing' },
       })
 
-  if (existing) await deleteChunksForDocument(document.id, userId)
-  await ingestDocument({ documentId: document.id, userId, title, filename, mimeType, buffer, courseId, sourceType })
-  return true
+  try {
+    if (existing) await deleteChunksForDocument(document.id, userId)
+    await ingestDocument({ documentId: document.id, userId, title, filename, mimeType, buffer, courseId, sourceType })
+    return true
+  } catch (error) {
+    await prisma.knowledgeDocument.update({
+      where: { id: document.id },
+      data: { status: 'failed', errorMessage: error.message },
+    })
+    console.error(`Canvas knowledge source failed: ${sourceType} "${title}": ${error.message}`)
+    return false
+  }
 }
 
 async function getModuleItems(userId, courseId, module) {

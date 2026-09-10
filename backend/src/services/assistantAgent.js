@@ -14,7 +14,7 @@ function getMondayOfCurrentWeek() {
   return date
 }
 
-function createAssistantTools(userId, actionsPerformed, clientActions, invalidateQueries) {
+function createAssistantTools(userId, actionsPerformed, clientActions, invalidateQueries, sources, selectedCourseId) {
   const record = (type, summary, query) => {
     actionsPerformed.push({ type, summary })
     if (query) invalidateQueries.add(query)
@@ -143,8 +143,8 @@ function createAssistantTools(userId, actionsPerformed, clientActions, invalidat
       schema: z.object({ to: z.enum(['/app/dashboard', '/app/plan', '/app/tasks', '/app/progress', '/app/rewards', '/app/settings', '/app/integrations/canvas']) }),
     }),
     tool(async ({ query, course }) => {
-      let courseId
-      if (course) {
+      let courseId = selectedCourseId
+      if (!courseId && course) {
         const matchingCourse = await prisma.course.findFirst({
           where: {
             userId,
@@ -158,6 +158,16 @@ function createAssistantTools(userId, actionsPerformed, clientActions, invalidat
       }
       const results = await searchCourseMaterials({ query, userId, courseId, limit: 3 })
       if (!results.length) return 'No matching course materials were found.'
+      sources.push(...results.map((result) => ({
+        title: result.metadata.title ?? 'Course material',
+        documentId: result.metadata.documentId ?? null,
+        sourceType: result.metadata.sourceType ?? 'upload',
+        chunkIndex: result.metadata.chunkIndex ?? null,
+        pageNumber: result.metadata.pageNumber || null,
+        slideNumber: result.metadata.slideNumber || null,
+        heading: result.metadata.heading || null,
+        excerpt: result.text.slice(0, 280),
+      })))
       return results.map((result, index) => (
         `[Source ${index + 1}: ${result.metadata.title ?? 'Course material'}]\n${result.text.slice(0, 1200)}`
       )).join('\n\n')
@@ -169,12 +179,13 @@ function createAssistantTools(userId, actionsPerformed, clientActions, invalidat
   ]
 }
 
-export async function runAssistant({ userId, question, history, context, apiKey }) {
+export async function runAssistant({ userId, question, history, context, apiKey, courseId }) {
   const actionsPerformed = []
   const clientActions = []
   const invalidateQueries = new Set()
+  const sources = []
   const model = new ChatAnthropic({ apiKey, model: 'claude-haiku-4-5-20251001', temperature: 0.2, maxTokens: 350, maxRetries: 2 })
-  const tools = createAssistantTools(userId, actionsPerformed, clientActions, invalidateQueries)
+  const tools = createAssistantTools(userId, actionsPerformed, clientActions, invalidateQueries, sources, courseId)
   const agent = createAgent({
     model,
     tools,
@@ -193,7 +204,8 @@ export async function runAssistant({ userId, question, history, context, apiKey 
         .join(' ')
     })
     .find((content) => content.trim())?.trim() ?? ''
-  return { answer: answer || actionsPerformed.map((action) => action.summary).join('. ') || 'No response generated.', actionsPerformed, clientActions, invalidateQueries: [...invalidateQueries] }
+  const uniqueSources = sources.filter((source, index) => sources.findIndex((item) => item.documentId === source.documentId && item.chunkIndex === source.chunkIndex) === index)
+  return { answer: answer || actionsPerformed.map((action) => action.summary).join('. ') || 'No response generated.', actionsPerformed, clientActions, invalidateQueries: [...invalidateQueries], sources: uniqueSources }
 }
 
 export async function generateConversationTitle({ apiKey, message }) {
