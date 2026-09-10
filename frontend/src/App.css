@@ -1793,6 +1793,29 @@
   color: var(--accent);
 }
 
+.streaming-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--accent);
+  background: rgba(126, 224, 255, 0.08);
+  border: 1px solid rgba(126, 224, 255, 0.3);
+  padding: 4px 10px;
+  border-radius: 12px;
+  margin-bottom: 8px;
+}
+
+@keyframes pulseSpinner {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.85); }
+}
+
+.streaming-spinner {
+  display: inline-block;
+  animation: pulseSpinner 1s infinite ease-in-out;
+}
+
 .assistant-message-controls {
   display: flex;
   gap: 12px;

@@ -36,6 +36,75 @@ async function request(path, options, retryAuth = true) {
   return await response.json()
 }
 
+export async function streamRequest(path, options, callbacks = {}) {
+  const { onStatus, onDelta, onDone, onError, signal } = callbacks
+  const isFormData = options?.body instanceof FormData
+  const response = await fetch(`${API_BASE}${path}`, {
+    credentials: 'include',
+    headers: {
+      Accept: 'text/event-stream, application/json',
+      ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
+      ...(options?.headers ?? {}),
+    },
+    signal,
+    ...options,
+  })
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => '')
+    let message = body
+    try {
+      const parsed = JSON.parse(body)
+      message = parsed.error || parsed.detail || body
+    } catch {
+      // Keep plain-text error responses readable.
+    }
+    throw new Error(message || `Request failed with status ${response.status}`)
+  }
+
+  if (!response.body) {
+    const data = await response.json()
+    if (onDone) onDone(data)
+    return data
+  }
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      const parts = buffer.split('\n\n')
+      buffer = parts.pop() ?? ''
+
+      for (const part of parts) {
+        const trimmed = part.trim()
+        if (!trimmed.startsWith('data:')) continue
+        const rawData = trimmed.slice(5).trim()
+        if (!rawData) continue
+        try {
+          const event = JSON.parse(rawData)
+          if (event.type === 'status' && onStatus) onStatus(event.message)
+          else if (event.type === 'delta' && onDelta) onDelta(event.text)
+          else if (event.type === 'done' && onDone) onDone(event)
+          else if (event.type === 'error' && onError) onError(new Error(event.error))
+        } catch (e) {
+          console.error('Failed to parse SSE event:', e, rawData)
+        }
+      }
+    }
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      return
+    }
+    if (onError) onError(error)
+    else throw error
+  }
+}
+
 export const authApi = {
   async signup(payload) {
     return request('/auth/signup', {
@@ -246,13 +315,34 @@ export const assistantApi = {
       body: JSON.stringify({ content }),
     })
   },
+  sendMessageStream(id, content, callbacks) {
+    return streamRequest(`/assistant/conversations/${id}/messages`, {
+      method: 'POST',
+      body: JSON.stringify({ content }),
+    }, callbacks)
+  },
   branchMessage(id, content) {
     return request(`/assistant/messages/${id}/branch`, {
       method: 'POST',
       body: JSON.stringify({ content }),
     })
   },
+  branchMessageStream(id, content, callbacks) {
+    return streamRequest(`/assistant/messages/${id}/branch`, {
+      method: 'POST',
+      body: JSON.stringify({ content }),
+    }, callbacks)
+  },
   regenerateMessage(id) {
     return request(`/assistant/messages/${id}/regenerate`, { method: 'POST' })
+  },
+  regenerateMessageStream(id, callbacks) {
+    return streamRequest(`/assistant/messages/${id}/regenerate`, { method: 'POST' }, callbacks)
+  },
+  askStream(payload, callbacks) {
+    return streamRequest('/assistant/ask', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }, callbacks)
   },
 }

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useNavigate } from 'react-router-dom'
 import { assistantApi } from '../api/client'
 import { usePageTitle } from '../hooks/usePageTitle'
 import { useAssistantStore } from '../store/assistantStore'
@@ -13,8 +14,10 @@ function formatDate(value) {
 
 export function AssistantPage() {
   usePageTitle()
+  const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [search, setSearch] = useState('')
+  const [error, setError] = useState('')
   const activeId = useAssistantStore((state) => state.activeConversationId)
   const setActiveId = useAssistantStore((state) => state.setActiveConversationId)
   const [draft, setDraft] = useState('')
@@ -22,9 +25,14 @@ export function AssistantPage() {
   const [renameValue, setRenameValue] = useState('')
   const [editingMessageId, setEditingMessageId] = useState(null)
   const [editingContent, setEditingContent] = useState('')
-  const [pendingMessage, setPendingMessage] = useState(null)
-  const [regeneratingMessageId, setRegeneratingMessageId] = useState(null)
   const [conversationListOpen, setConversationListOpen] = useState(false)
+  const [streamingState, setStreamingState] = useState({
+    isStreaming: false,
+    statusText: '',
+    text: '',
+    userMessageContent: '',
+    abortController: null,
+  })
   const streamRef = useRef(null)
 
   const conversationsQuery = useQuery({
@@ -65,41 +73,69 @@ export function AssistantPage() {
       refreshConversations()
     },
   })
-  const sendMessage = useMutation({
-    mutationFn: ({ id, content }) => assistantApi.sendMessage(id, content),
-    onSuccess: ({ conversation, userMessage, assistantMessage }) => {
-      setPendingMessage(null)
-      setActiveId(conversation.id)
-      queryClient.setQueryData(['assistant-messages', conversation.id], (current) => ({
+  function handleStreamResult(data) {
+    if (data?.conversation?.id) {
+      setActiveId(data.conversation.id)
+      queryClient.setQueryData(['assistant-messages', data.conversation.id], (current) => ({
         ...(current ?? {}),
-        conversation,
-        messages: [...(current?.messages ?? EMPTY_MESSAGES), userMessage, assistantMessage],
+        conversation: data.conversation,
+        messages: [
+          ...(current?.messages ?? EMPTY_MESSAGES),
+          ...(data.userMessage ? [data.userMessage] : []),
+          ...(data.assistantMessage ? [data.assistantMessage] : []),
+        ],
       }))
-      queryClient.invalidateQueries({ queryKey: ['assistant-messages', conversation.id] })
-      refreshConversations()
-    },
-    onError: () => setPendingMessage((message) => message ? { ...message, failed: true } : null),
-  })
-  const branchMessage = useMutation({
-    mutationFn: ({ id, content }) => assistantApi.branchMessage(id, content),
-    onSuccess: ({ conversation }) => {
-      setEditingMessageId(null)
-      setEditingContent('')
-      setActiveId(conversation.id)
-      queryClient.invalidateQueries({ queryKey: ['assistant-messages', conversation.id] })
-      refreshConversations()
-    },
-  })
-  const regenerateMessage = useMutation({
-    mutationFn: assistantApi.regenerateMessage,
-    onMutate: (messageId) => setRegeneratingMessageId(messageId),
-    onSuccess: ({ conversation }) => {
-      setActiveId(conversation.id)
-      queryClient.invalidateQueries({ queryKey: ['assistant-messages', conversation.id] })
-      refreshConversations()
-    },
-    onSettled: () => setRegeneratingMessageId(null),
-  })
+      queryClient.invalidateQueries({ queryKey: ['assistant-messages', data.conversation.id] })
+    }
+    refreshConversations()
+
+    if (Array.isArray(data?.clientActions)) {
+      for (const action of data.clientActions) {
+        if (action.type === 'navigate') navigate(action.to)
+      }
+    }
+    if (Array.isArray(data?.invalidateQueries)) {
+      for (const key of data.invalidateQueries) {
+        queryClient.invalidateQueries({ queryKey: [key] })
+      }
+    }
+  }
+
+  function startStreamTask(streamFn) {
+    const controller = new AbortController()
+    setError('')
+    setStreamingState({
+      isStreaming: true,
+      statusText: 'Connecting...',
+      text: '',
+      userMessageContent: '',
+      abortController: controller,
+    })
+
+    streamFn({
+      signal: controller.signal,
+      onStatus: (message) => setStreamingState((s) => ({ ...s, statusText: message })),
+      onDelta: (text) => setStreamingState((s) => ({ ...s, text: s.text + text, statusText: '' })),
+      onDone: (data) => {
+        setStreamingState({ isStreaming: false, statusText: '', text: '', userMessageContent: '', abortController: null })
+        handleStreamResult(data)
+      },
+      onError: (err) => {
+        setError(err.message)
+        setStreamingState({ isStreaming: false, statusText: '', text: '', userMessageContent: '', abortController: null })
+      },
+    })
+  }
+
+  function stopGeneration() {
+    if (streamingState.abortController) {
+      streamingState.abortController.abort()
+      setStreamingState({ isStreaming: false, statusText: '', text: '', userMessageContent: '', abortController: null })
+      if (displayedActiveId) {
+        queryClient.invalidateQueries({ queryKey: ['assistant-messages', displayedActiveId] })
+      }
+    }
+  }
   const updateCourseContext = useMutation({
     mutationFn: ({ id, courseId }) => assistantApi.updateConversation(id, { courseId }),
     onSuccess: ({ conversation }) => {
@@ -114,15 +150,28 @@ export function AssistantPage() {
 
   useEffect(() => {
     streamRef.current?.scrollTo({ top: streamRef.current.scrollHeight, behavior: 'smooth' })
-  }, [messages, pendingMessage, sendMessage.isPending, regeneratingMessageId])
+  }, [messages, streamingState.isStreaming, streamingState.text, streamingState.statusText])
 
   function submitMessage(event) {
     event.preventDefault()
     const content = draft.trim()
-    if (!content || !displayedActiveId || sendMessage.isPending) return
+    if (!content || !displayedActiveId || streamingState.isStreaming) return
     setDraft('')
-    setPendingMessage({ id: `pending-${Date.now()}`, content })
-    sendMessage.mutate({ id: displayedActiveId, content })
+    startStreamTask((callbacks) => assistantApi.sendMessageStream(displayedActiveId, content, callbacks))
+  }
+
+  function submitBranch(event, messageId) {
+    event.preventDefault()
+    const content = editingContent.trim()
+    if (!content || streamingState.isStreaming) return
+    setEditingMessageId(null)
+    setEditingContent('')
+    startStreamTask((callbacks) => assistantApi.branchMessageStream(messageId, content, callbacks))
+  }
+
+  function submitRegenerate(messageId) {
+    if (streamingState.isStreaming) return
+    startStreamTask((callbacks) => assistantApi.regenerateMessageStream(messageId, callbacks))
   }
 
   return (
@@ -164,18 +213,26 @@ export function AssistantPage() {
           </header>
           <div className="conversation-stream" ref={streamRef}>
             {messagesQuery.isLoading ? <p className="muted">Loading messages...</p> : null}
-            {!messagesQuery.isLoading && !messages.length ? <div className="assistant-page-empty"><h3>What are you working on?</h3><p>Ask about a course outline, organize your deadlines, or create a study plan.</p></div> : null}
+            {!messagesQuery.isLoading && !messages.length && !streamingState.isStreaming ? <div className="assistant-page-empty"><h3>What are you working on?</h3><p>Ask about a course outline, organize your deadlines, or create a study plan.</p></div> : null}
             {messages.map((message) => <article className={`conversation-message ${message.role}`} key={message.id}>
-              {editingMessageId === message.id ? <form className="message-edit-form" onSubmit={(event) => { event.preventDefault(); if (editingContent.trim()) branchMessage.mutate({ id: message.id, content: editingContent.trim() }) }}><textarea value={editingContent} onChange={(event) => setEditingContent(event.target.value)} rows="3" autoFocus /><div><button className="ghost small" type="button" onClick={() => setEditingMessageId(null)}>Cancel</button><button className="primary small" type="submit" disabled={branchMessage.isPending}>Save and regenerate</button></div></form> : <>{message.role === 'user' ? <><p>{message.content}</p><button className="message-edit-button" type="button" onClick={() => { setEditingMessageId(message.id); setEditingContent(message.content) }}>Edit and regenerate</button></> : <><FormattedText text={message.content} /><div className="assistant-message-controls"><button className="message-edit-button" type="button" onClick={() => navigator.clipboard.writeText(message.content)}>Copy</button><button className="message-edit-button" type="button" onClick={() => regenerateMessage.mutate(message.id)} disabled={regenerateMessage.isPending}>{regeneratingMessageId === message.id ? 'Regenerating...' : 'Regenerate'}</button></div></>}</>}
+              {editingMessageId === message.id ? <form className="message-edit-form" onSubmit={(event) => submitBranch(event, message.id)}><textarea value={editingContent} onChange={(event) => setEditingContent(event.target.value)} rows="3" autoFocus /><div><button className="ghost small" type="button" onClick={() => setEditingMessageId(null)}>Cancel</button><button className="primary small" type="submit" disabled={streamingState.isStreaming}>Save and regenerate</button></div></form> : <>{message.role === 'user' ? <><p>{message.content}</p><button className="message-edit-button" type="button" onClick={() => { setEditingMessageId(message.id); setEditingContent(message.content) }}>Edit and regenerate</button></> : <><FormattedText text={message.content} /><div className="assistant-message-controls"><button className="message-edit-button" type="button" onClick={() => navigator.clipboard.writeText(message.content)}>Copy</button><button className="message-edit-button" type="button" onClick={() => submitRegenerate(message.id)} disabled={streamingState.isStreaming}>Regenerate</button></div></>}</>}
               {Array.isArray(message.actions) && message.actions.length ? <div className="message-actions">{message.actions.map((action) => <span key={action.summary}>{action.summary}</span>)}</div> : null}
               {Array.isArray(message.sources) && message.sources.length ? <details className="message-sources"><summary>Sources ({message.sources.length})</summary>{message.sources.map((source, index) => <div className="message-source" key={`${source.documentId ?? source.title}-${source.chunkIndex ?? index}`}><strong>{source.title}</strong><span>{source.sourceType.replaceAll('_', ' ')}{source.pageNumber ? ` · page ${source.pageNumber}` : ''}{source.slideNumber ? ` · slide ${source.slideNumber}` : ''}{source.heading ? ` · ${source.heading}` : ''}</span><p>{source.excerpt}</p></div>)}</details> : null}
             </article>)}
-            {pendingMessage ? <article className={`conversation-message user${pendingMessage.failed ? ' failed' : ''}`}><p>{pendingMessage.content}</p>{pendingMessage.failed ? <button className="message-edit-button" type="button" onClick={() => { setDraft(pendingMessage.content); setPendingMessage(null) }}>Retry message</button> : null}</article> : null}
-            {sendMessage.isPending ? <article className="conversation-message assistant"><p className="muted">Thinking...</p></article> : null}
-            {regenerateMessage.isPending ? <article className="conversation-message assistant regeneration-status"><p className="muted">Regenerating response...</p></article> : null}
+            {streamingState.isStreaming ? <article className="conversation-message assistant streaming">
+              {streamingState.statusText ? <div className="streaming-status-badge"><span className="streaming-spinner">⚡</span> {streamingState.statusText}</div> : null}
+              {streamingState.text ? <FormattedText text={streamingState.text} /> : <p className="muted">Thinking...</p>}
+            </article> : null}
           </div>
-          {sendMessage.error || branchMessage.error || regenerateMessage.error || updateCourseContext.error ? <p className="error-text">{sendMessage.error?.message ?? branchMessage.error?.message ?? regenerateMessage.error?.message ?? updateCourseContext.error?.message}</p> : null}
-          <form className="conversation-composer" onSubmit={submitMessage}><textarea value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Ask about your schedule or course materials..." rows="2" disabled={sendMessage.isPending} /><button className="primary" type="submit" disabled={!draft.trim() || sendMessage.isPending}>Send</button></form>
+          {error || updateCourseContext.error ? <p className="error-text">{error || updateCourseContext.error?.message}</p> : null}
+          <form className="conversation-composer" onSubmit={submitMessage}>
+            <textarea value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Ask about your schedule or course materials..." rows="2" disabled={streamingState.isStreaming} />
+            {streamingState.isStreaming ? (
+              <button className="ghost danger" type="button" onClick={stopGeneration}>⏹ Stop</button>
+            ) : (
+              <button className="primary" type="submit" disabled={!draft.trim()}>Send</button>
+            )}
+          </form>
         </> : <div className="assistant-page-empty"><h1>Your study conversations</h1><p>Create a chat to ask questions, use course materials, or manage your plan.</p><button className="primary" type="button" onClick={() => createConversation.mutate()}>New chat</button></div>}
       </div>
     </section>

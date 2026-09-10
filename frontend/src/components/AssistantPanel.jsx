@@ -18,7 +18,14 @@ export function AssistantPanel() {
 
   const [open, setOpen] = useState(false)
   const [input, setInput] = useState('')
-  const [pendingMessage, setPendingMessage] = useState(null)
+  const [error, setError] = useState('')
+  const [streamingState, setStreamingState] = useState({
+    isStreaming: false,
+    statusText: '',
+    text: '',
+    userMessageContent: '',
+    abortController: null,
+  })
   const streamRef = useRef(null)
 
   const conversationsQuery = useQuery({
@@ -41,42 +48,77 @@ export function AssistantPanel() {
     if (open && streamRef.current) {
       streamRef.current.scrollTop = streamRef.current.scrollHeight
     }
-  }, [messages, open, pendingMessage])
+  }, [messages, open, streamingState.isStreaming, streamingState.text, streamingState.statusText])
 
-  const mutation = useMutation({
-    mutationFn: ({ id, content }) => assistantApi.sendMessage(id, content),
-    onSuccess: (data) => {
-      setPendingMessage(null)
+  function handleStreamResult(data) {
+    if (data?.conversation?.id) {
       setActiveConversationId(data.conversation.id)
       queryClient.setQueryData(['assistant-messages', data.conversation.id], (current) => ({
         ...(current ?? {}),
         conversation: data.conversation,
-        messages: [...(current?.messages ?? EMPTY_MESSAGES), data.userMessage, data.assistantMessage],
+        messages: [
+          ...(current?.messages ?? EMPTY_MESSAGES),
+          ...(data.userMessage ? [data.userMessage] : []),
+          ...(data.assistantMessage ? [data.assistantMessage] : []),
+        ],
       }))
       queryClient.invalidateQueries({ queryKey: ['assistant-messages', data.conversation.id] })
       queryClient.invalidateQueries({ queryKey: ['assistant-conversations'] })
+    }
 
-      // Handle client-side actions
-      if (Array.isArray(data?.clientActions)) {
-        for (const action of data.clientActions) {
-          if (action.type === 'set_theme') {
-            setTheme(action.value)
-          } else if (action.type === 'navigate') {
-            navigate(action.to)
-            setOpen(false)
-          }
+    if (Array.isArray(data?.clientActions)) {
+      for (const action of data.clientActions) {
+        if (action.type === 'set_theme') {
+          setTheme(action.value)
+        } else if (action.type === 'navigate') {
+          navigate(action.to)
+          setOpen(false)
         }
       }
+    }
 
-      // Invalidate React Query caches so pages refresh
-      if (Array.isArray(data?.invalidateQueries)) {
-        for (const key of data.invalidateQueries) {
-          queryClient.invalidateQueries({ queryKey: [key] })
-        }
+    if (Array.isArray(data?.invalidateQueries)) {
+      for (const key of data.invalidateQueries) {
+        queryClient.invalidateQueries({ queryKey: [key] })
       }
-    },
-    onError: () => setPendingMessage((message) => message ? { ...message, failed: true } : null),
-  })
+    }
+  }
+
+  function startStreamTask(conversationId, content) {
+    const controller = new AbortController()
+    setError('')
+    setStreamingState({
+      isStreaming: true,
+      statusText: 'Connecting...',
+      text: '',
+      userMessageContent: content,
+      abortController: controller,
+    })
+
+    assistantApi.sendMessageStream(conversationId, content, {
+      signal: controller.signal,
+      onStatus: (message) => setStreamingState((s) => ({ ...s, statusText: message })),
+      onDelta: (text) => setStreamingState((s) => ({ ...s, text: s.text + text, statusText: '' })),
+      onDone: (data) => {
+        setStreamingState({ isStreaming: false, statusText: '', text: '', userMessageContent: '', abortController: null })
+        handleStreamResult(data)
+      },
+      onError: (err) => {
+        setError(err.message)
+        setStreamingState({ isStreaming: false, statusText: '', text: '', userMessageContent: '', abortController: null })
+      },
+    })
+  }
+
+  function stopGeneration() {
+    if (streamingState.abortController) {
+      streamingState.abortController.abort()
+      setStreamingState({ isStreaming: false, statusText: '', text: '', userMessageContent: '', abortController: null })
+      if (selectedConversationId) {
+        queryClient.invalidateQueries({ queryKey: ['assistant-messages', selectedConversationId] })
+      }
+    }
+  }
 
   const createConversation = useMutation({
     mutationFn: () => assistantApi.createConversation(),
@@ -92,16 +134,17 @@ export function AssistantPanel() {
   function handleSubmit(event) {
     event.preventDefault()
     const trimmed = input.trim()
-    if (!trimmed || mutation.isPending) return
+    if (!trimmed || streamingState.isStreaming) return
     setInput('')
-    setPendingMessage({ id: `pending-${Date.now()}`, content: trimmed })
+
     if (selectedConversationId) {
-      mutation.mutate({ id: selectedConversationId, content: trimmed })
+      startStreamTask(selectedConversationId, trimmed)
       return
     }
+
     createConversation.mutate(undefined, {
-      onSuccess: ({ conversation }) => mutation.mutate({ id: conversation.id, content: trimmed }),
-      onError: () => setPendingMessage((message) => message ? { ...message, failed: true } : null),
+      onSuccess: ({ conversation }) => startStreamTask(conversation.id, trimmed),
+      onError: (err) => setError(err.message),
     })
   }
 
@@ -136,7 +179,7 @@ export function AssistantPanel() {
         </div>
 
         <div className="assistant-stream assistant-panel-stream" ref={streamRef}>
-          {messages.length === 0 && !pendingMessage ? (
+          {messages.length === 0 && !streamingState.isStreaming ? (
             <div className="assistant-empty">
               <p className="muted" style={{ fontSize: 13 }}>
                 Ask me anything — I can add classes, tasks, events, generate your study plan, switch themes, and more.
@@ -156,17 +199,28 @@ export function AssistantPanel() {
               </div>
             ))
           )}
-          {pendingMessage ? <div className={`assistant-bubble user${pendingMessage.failed ? ' failed' : ''}`}><p className="assistant-text">{pendingMessage.content}</p>{pendingMessage.failed ? <button className="message-edit-button" type="button" onClick={() => { setInput(pendingMessage.content); setPendingMessage(null) }}>Retry message</button> : null}</div> : null}
-          {mutation.isPending && (
-            <div className="assistant-bubble assistant">
-              <p className="assistant-text muted">Thinking…</p>
+          {streamingState.userMessageContent ? (
+            <div className="assistant-bubble user">
+              <p className="assistant-text">{streamingState.userMessageContent}</p>
             </div>
-          )}
+          ) : null}
+          {streamingState.isStreaming ? (
+            <div className="assistant-bubble assistant">
+              {streamingState.statusText ? (
+                <div className="streaming-status-badge"><span className="streaming-spinner">⚡</span> {streamingState.statusText}</div>
+              ) : null}
+              {streamingState.text ? (
+                <FormattedText text={streamingState.text} className="assistant-text" />
+              ) : (
+                <p className="assistant-text muted">Thinking…</p>
+              )}
+            </div>
+          ) : null}
         </div>
 
-        {mutation.error && (
+        {error && (
           <p className="pill pill-warn" style={{ margin: '0 12px', fontSize: 12 }}>
-            {mutation.error.message || 'Unable to reach the AI assistant.'}
+            {error}
           </p>
         )}
 
@@ -177,12 +231,18 @@ export function AssistantPanel() {
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Add a Math class on Monday at 9am…"
-            disabled={mutation.isPending}
+            disabled={streamingState.isStreaming}
             autoComplete="off"
           />
-          <button type="submit" className="primary small" disabled={!input.trim() || mutation.isPending}>
-            ↑
-          </button>
+          {streamingState.isStreaming ? (
+            <button type="button" className="ghost danger small" onClick={stopGeneration} style={{ fontSize: 12, padding: '6px 10px' }}>
+              ⏹
+            </button>
+          ) : (
+            <button type="submit" className="primary small" disabled={!input.trim()}>
+              ↑
+            </button>
+          )}
         </form>
       </div>
     </>

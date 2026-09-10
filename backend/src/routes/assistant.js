@@ -56,6 +56,60 @@ export async function validateCourse(courseId, userId) {
   return prisma.course.findFirst({ where: { id: courseId, userId } })
 }
 
+function isSseRequest(req) {
+  return req.get('Accept')?.includes('text/event-stream') || req.query.stream === 'true'
+}
+
+async function handleStreamOrJson({ req, res, executeTask }) {
+  if (isSseRequest(req)) {
+    res.setHeader('Content-Type', 'text/event-stream')
+    res.setHeader('Cache-Control', 'no-cache')
+    res.setHeader('Connection', 'keep-alive')
+    res.flushHeaders?.()
+
+    let isClosed = false
+    const abortController = new AbortController()
+
+    req.on('close', () => {
+      isClosed = true
+      abortController.abort()
+    })
+
+    const sendEvent = (data) => {
+      if (!isClosed) {
+        res.write(`data: ${JSON.stringify(data)}\n\n`)
+      }
+    }
+
+    try {
+      const result = await executeTask((event) => sendEvent(event), abortController.signal)
+      sendEvent({ type: 'done', ...result })
+      res.end()
+    } catch (error) {
+      if (!isClosed) {
+        const status = error.status ?? error.statusCode ?? 500
+        let errorMessage = error.message || 'Assistant request failed'
+        if (status === 429) {
+          errorMessage = 'The AI service rate limit was reached. Please wait a moment and try again.'
+        }
+        sendEvent({ type: 'error', error: errorMessage })
+        res.end()
+      }
+    }
+  } else {
+    try {
+      const result = await executeTask(null, null)
+      return res.json(result)
+    } catch (error) {
+      const status = error.status ?? error.statusCode ?? 500
+      if (status === 429) {
+        return res.status(429).json({ error: 'The AI service rate limit was reached. Please wait a moment and try again.' })
+      }
+      return res.status(500).json({ error: 'Anthropic assistant request failed', detail: error.message })
+    }
+  }
+}
+
 router.get('/conversations', requireAuth, async (req, res) => {
   const userId = req.user?.id
   const search = typeof req.query.search === 'string' ? req.query.search.trim() : ''
@@ -131,40 +185,42 @@ router.post('/conversations/:id/messages', requireAuth, assistantRateLimit, asyn
   const conversation = await findOwnedConversation(req.params.id, userId)
   if (!conversation) return res.status(404).json({ error: 'Conversation not found' })
 
-  try {
-    const history = await prisma.chatMessage.findMany({
-      where: { conversationId: conversation.id, branchId: conversation.activeBranch, status: 'complete' },
-      orderBy: { createdAt: 'asc' },
-      take: 20,
-    })
-    const userMessage = await prisma.chatMessage.create({
-      data: { conversationId: conversation.id, branchId: conversation.activeBranch, role: 'user', content: parsed.data.content },
-    })
-    const result = await runAssistant({
-      userId,
-      question: parsed.data.content,
-      history: history.map((message) => ({ role: message.role, content: message.content })),
-      context: await buildAssistantContext(userId),
-      apiKey: env.ANTHROPIC_API_KEY,
-      courseId: conversation.courseId,
-    })
-    const assistantMessage = await prisma.chatMessage.create({
-      data: { conversationId: conversation.id, branchId: conversation.activeBranch, role: 'assistant', content: result.answer, actions: result.actionsPerformed, sources: result.sources },
-    })
-    const title = history.length === 0
-      ? await generateConversationTitle({ apiKey: env.ANTHROPIC_API_KEY, message: parsed.data.content }).catch(() => 'New chat')
-      : conversation.title
-    const updatedConversation = await prisma.conversation.update({
-      where: { id: conversation.id },
-      data: { title, updatedAt: new Date() },
-      include: { course: { select: { id: true, name: true, courseCode: true } } },
-    })
-    return res.status(201).json({ conversation: updatedConversation, userMessage, assistantMessage, ...result })
-  } catch (error) {
-    const status = error.status ?? error.statusCode ?? 500
-    if (status === 429) return res.status(429).json({ error: 'The AI service rate limit was reached. Please wait a moment and try again.' })
-    return res.status(500).json({ error: 'Anthropic assistant request failed', detail: error.message })
-  }
+  return handleStreamOrJson({
+    req,
+    res,
+    executeTask: async (onEvent, signal) => {
+      const history = await prisma.chatMessage.findMany({
+        where: { conversationId: conversation.id, branchId: conversation.activeBranch, status: 'complete' },
+        orderBy: { createdAt: 'asc' },
+        take: 20,
+      })
+      const userMessage = await prisma.chatMessage.create({
+        data: { conversationId: conversation.id, branchId: conversation.activeBranch, role: 'user', content: parsed.data.content },
+      })
+      const result = await runAssistant({
+        userId,
+        question: parsed.data.content,
+        history: history.map((message) => ({ role: message.role, content: message.content })),
+        context: await buildAssistantContext(userId),
+        apiKey: env.ANTHROPIC_API_KEY,
+        courseId: conversation.courseId,
+        onEvent,
+        signal,
+      })
+      const assistantMessage = await prisma.chatMessage.create({
+        data: { conversationId: conversation.id, branchId: conversation.activeBranch, role: 'assistant', content: result.answer, actions: result.actionsPerformed, sources: result.sources },
+      })
+      const title = history.length === 0
+        ? await generateConversationTitle({ apiKey: env.ANTHROPIC_API_KEY, message: parsed.data.content }).catch(() => 'New chat')
+        : conversation.title
+      const updatedConversation = await prisma.conversation.update({
+        where: { id: conversation.id },
+        data: { title, updatedAt: new Date() },
+        include: { course: { select: { id: true, name: true, courseCode: true } } },
+      })
+      return { conversation: updatedConversation, userMessage, assistantMessage, ...result }
+    },
+  })
 })
 
 router.post('/messages/:id/branch', requireAuth, assistantRateLimit, async (req, res) => {
@@ -178,14 +234,79 @@ router.post('/messages/:id/branch', requireAuth, assistantRateLimit, async (req,
   })
   if (!originalMessage) return res.status(404).json({ error: 'User message not found' })
 
-  try {
-    const prefix = await prisma.chatMessage.findMany({
-      where: { conversationId: originalMessage.conversationId, branchId: originalMessage.branchId, createdAt: { lt: originalMessage.createdAt }, status: 'complete' },
-      orderBy: { createdAt: 'asc' },
-    })
-    const branchId = randomUUID()
-    const userMessage = await prisma.$transaction(async (tx) => {
-      if (prefix.length) {
+  return handleStreamOrJson({
+    req,
+    res,
+    executeTask: async (onEvent, signal) => {
+      const prefix = await prisma.chatMessage.findMany({
+        where: { conversationId: originalMessage.conversationId, branchId: originalMessage.branchId, createdAt: { lt: originalMessage.createdAt }, status: 'complete' },
+        orderBy: { createdAt: 'asc' },
+      })
+      const branchId = randomUUID()
+      const userMessage = await prisma.$transaction(async (tx) => {
+        if (prefix.length) {
+          await tx.chatMessage.createMany({
+            data: prefix.map((message) => ({
+              conversationId: originalMessage.conversationId,
+              branchId,
+              role: message.role,
+              content: message.content,
+              sources: message.sources ?? undefined,
+              actions: message.actions ?? undefined,
+              status: message.status,
+              createdAt: message.createdAt,
+            })),
+          })
+        }
+        await tx.conversation.update({ where: { id: originalMessage.conversationId }, data: { activeBranch: branchId } })
+        return tx.chatMessage.create({
+          data: { conversationId: originalMessage.conversationId, parentMessageId: originalMessage.id, branchId, role: 'user', content: parsed.data.content },
+        })
+      })
+      const result = await runAssistant({
+        userId,
+        question: parsed.data.content,
+        history: prefix.map((message) => ({ role: message.role, content: message.content })).slice(-20),
+        context: await buildAssistantContext(userId),
+        apiKey: env.ANTHROPIC_API_KEY,
+        courseId: originalMessage.conversation.courseId,
+        onEvent,
+        signal,
+      })
+      const assistantMessage = await prisma.chatMessage.create({
+        data: { conversationId: originalMessage.conversationId, branchId, role: 'assistant', content: result.answer, actions: result.actionsPerformed, sources: result.sources },
+      })
+      const conversation = await prisma.conversation.update({
+        where: { id: originalMessage.conversationId },
+        data: { updatedAt: new Date() },
+        include: { course: { select: { id: true, name: true, courseCode: true } } },
+      })
+      return { conversation, userMessage, assistantMessage, ...result }
+    },
+  })
+})
+
+router.post('/messages/:id/regenerate', requireAuth, assistantRateLimit, async (req, res) => {
+  if (!env.ANTHROPIC_API_KEY) return res.status(400).json({ error: 'Anthropic API key not configured' })
+  const userId = req.user?.id
+  const originalMessage = await prisma.chatMessage.findFirst({
+    where: { id: req.params.id, role: 'assistant', conversation: { userId } },
+    include: { conversation: true },
+  })
+  if (!originalMessage) return res.status(404).json({ error: 'Assistant message not found' })
+
+  return handleStreamOrJson({
+    req,
+    res,
+    executeTask: async (onEvent, signal) => {
+      const prefix = await prisma.chatMessage.findMany({
+        where: { conversationId: originalMessage.conversationId, branchId: originalMessage.branchId, createdAt: { lt: originalMessage.createdAt }, status: 'complete' },
+        orderBy: { createdAt: 'asc' },
+      })
+      const question = [...prefix].reverse().find((message) => message.role === 'user')
+      if (!question) throw new Error('No user message is available to regenerate from')
+      const branchId = randomUUID()
+      await prisma.$transaction(async (tx) => {
         await tx.chatMessage.createMany({
           data: prefix.map((message) => ({
             conversationId: originalMessage.conversationId,
@@ -198,90 +319,29 @@ router.post('/messages/:id/branch', requireAuth, assistantRateLimit, async (req,
             createdAt: message.createdAt,
           })),
         })
-      }
-      await tx.conversation.update({ where: { id: originalMessage.conversationId }, data: { activeBranch: branchId } })
-      return tx.chatMessage.create({
-        data: { conversationId: originalMessage.conversationId, parentMessageId: originalMessage.id, branchId, role: 'user', content: parsed.data.content },
+        await tx.conversation.update({ where: { id: originalMessage.conversationId }, data: { activeBranch: branchId } })
       })
-    })
-    const result = await runAssistant({
-      userId,
-      question: parsed.data.content,
-      history: prefix.map((message) => ({ role: message.role, content: message.content })).slice(-20),
-      context: await buildAssistantContext(userId),
-      apiKey: env.ANTHROPIC_API_KEY,
-      courseId: originalMessage.conversation.courseId,
-    })
-    const assistantMessage = await prisma.chatMessage.create({
-      data: { conversationId: originalMessage.conversationId, branchId, role: 'assistant', content: result.answer, actions: result.actionsPerformed, sources: result.sources },
-    })
-    const conversation = await prisma.conversation.update({
-      where: { id: originalMessage.conversationId },
-      data: { updatedAt: new Date() },
-      include: { course: { select: { id: true, name: true, courseCode: true } } },
-    })
-    return res.status(201).json({ conversation, userMessage, assistantMessage, ...result })
-  } catch (error) {
-    const status = error.status ?? error.statusCode ?? 500
-    if (status === 429) return res.status(429).json({ error: 'The AI service rate limit was reached. Please wait a moment and try again.' })
-    return res.status(500).json({ error: 'Anthropic assistant request failed', detail: error.message })
-  }
-})
-
-router.post('/messages/:id/regenerate', requireAuth, assistantRateLimit, async (req, res) => {
-  if (!env.ANTHROPIC_API_KEY) return res.status(400).json({ error: 'Anthropic API key not configured' })
-  const userId = req.user?.id
-  const originalMessage = await prisma.chatMessage.findFirst({
-    where: { id: req.params.id, role: 'assistant', conversation: { userId } },
-    include: { conversation: true },
+      const result = await runAssistant({
+        userId,
+        question: question.content,
+        history: prefix.slice(0, -1).map((message) => ({ role: message.role, content: message.content })).slice(-20),
+        context: await buildAssistantContext(userId),
+        apiKey: env.ANTHROPIC_API_KEY,
+        courseId: originalMessage.conversation.courseId,
+        onEvent,
+        signal,
+      })
+      const assistantMessage = await prisma.chatMessage.create({
+        data: { conversationId: originalMessage.conversationId, branchId, role: 'assistant', content: result.answer, actions: result.actionsPerformed, sources: result.sources },
+      })
+      const conversation = await prisma.conversation.update({
+        where: { id: originalMessage.conversationId },
+        data: { updatedAt: new Date() },
+        include: { course: { select: { id: true, name: true, courseCode: true } } },
+      })
+      return { conversation, assistantMessage, ...result }
+    },
   })
-  if (!originalMessage) return res.status(404).json({ error: 'Assistant message not found' })
-
-  try {
-    const prefix = await prisma.chatMessage.findMany({
-      where: { conversationId: originalMessage.conversationId, branchId: originalMessage.branchId, createdAt: { lt: originalMessage.createdAt }, status: 'complete' },
-      orderBy: { createdAt: 'asc' },
-    })
-    const question = [...prefix].reverse().find((message) => message.role === 'user')
-    if (!question) return res.status(400).json({ error: 'No user message is available to regenerate from' })
-    const branchId = randomUUID()
-    await prisma.$transaction(async (tx) => {
-      await tx.chatMessage.createMany({
-        data: prefix.map((message) => ({
-          conversationId: originalMessage.conversationId,
-          branchId,
-          role: message.role,
-          content: message.content,
-          sources: message.sources ?? undefined,
-          actions: message.actions ?? undefined,
-          status: message.status,
-          createdAt: message.createdAt,
-        })),
-      })
-      await tx.conversation.update({ where: { id: originalMessage.conversationId }, data: { activeBranch: branchId } })
-    })
-    const result = await runAssistant({
-      userId,
-      question: question.content,
-      history: prefix.slice(0, -1).map((message) => ({ role: message.role, content: message.content })).slice(-20),
-      context: await buildAssistantContext(userId),
-      apiKey: env.ANTHROPIC_API_KEY,
-      courseId: originalMessage.conversation.courseId,
-    })
-    const assistantMessage = await prisma.chatMessage.create({
-      data: { conversationId: originalMessage.conversationId, branchId, role: 'assistant', content: result.answer, actions: result.actionsPerformed, sources: result.sources },
-    })
-    const conversation = await prisma.conversation.update({
-      where: { id: originalMessage.conversationId },
-      data: { updatedAt: new Date() },
-      include: { course: { select: { id: true, name: true, courseCode: true } } },
-    })
-    return res.status(201).json({ conversation, assistantMessage, ...result })
-  } catch (error) {
-    const status = error.status ?? error.statusCode ?? 500
-    if (status === 429) return res.status(429).json({ error: 'The AI service rate limit was reached. Please wait a moment and try again.' })
-    return res.status(500).json({ error: 'Anthropic assistant request failed', detail: error.message })
-  }
 })
 
 router.post('/ask', requireAuth, assistantRateLimit, async (req, res) => {
@@ -292,15 +352,21 @@ router.post('/ask', requireAuth, assistantRateLimit, async (req, res) => {
   const userId = req.user?.id
   if (!userId) return res.status(401).json({ error: 'Not authenticated' })
 
-  try {
-    return res.json(await runAssistant({ userId, question: parsed.data.question, history: (parsed.data.history ?? []).slice(-20), context: await buildAssistantContext(userId), apiKey: env.ANTHROPIC_API_KEY }))
-  } catch (error) {
-    const status = error.status ?? error.statusCode ?? 500
-    if (status === 429) {
-      return res.status(429).json({ error: 'The AI service rate limit was reached. Please wait a moment and try again.' })
-    }
-    return res.status(500).json({ error: 'Anthropic assistant request failed', detail: error.message })
-  }
+  return handleStreamOrJson({
+    req,
+    res,
+    executeTask: async (onEvent, signal) => {
+      return runAssistant({
+        userId,
+        question: parsed.data.question,
+        history: (parsed.data.history ?? []).slice(-20),
+        context: await buildAssistantContext(userId),
+        apiKey: env.ANTHROPIC_API_KEY,
+        onEvent,
+        signal,
+      })
+    },
+  })
 })
 
 export default router
