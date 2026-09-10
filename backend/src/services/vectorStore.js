@@ -39,7 +39,7 @@ export async function addChunks(chunks) {
   })
 }
 
-export async function searchChunks({ embedding, userId, courseId, limit = 5 }) {
+export async function searchChunks({ embedding, userId, courseId, limit = 5, maxDistance = 0.82 }) {
   const collection = await getCollection()
   const result = await collection.query({
     queryEmbeddings: [embedding],
@@ -48,11 +48,13 @@ export async function searchChunks({ embedding, userId, courseId, limit = 5 }) {
     include: ['documents', 'metadatas', 'distances'],
   })
 
-  return (result.documents?.[0] ?? []).map((text, index) => ({
-    text,
-    metadata: result.metadatas?.[0]?.[index] ?? {},
-    distance: result.distances?.[0]?.[index] ?? null,
-  }))
+  return (result.documents?.[0] ?? [])
+    .map((text, index) => ({
+      text,
+      metadata: result.metadatas?.[0]?.[index] ?? {},
+      distance: result.distances?.[0]?.[index] ?? null,
+    }))
+    .filter((item) => item.distance === null || item.distance <= maxDistance)
 }
 
 export async function deleteChunks(ids) {

@@ -9,6 +9,7 @@ export function createAssistantRateLimiter({ limit = 20, windowMs = 60_000 } = {
       res.on('finish', () => {
         console.info(JSON.stringify({
           event: 'assistant_request',
+          requestId: req.id ?? null,
           userId: req.user?.id ?? null,
           method: req.method,
           path: req.path,

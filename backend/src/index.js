@@ -1,4 +1,5 @@
 import 'dotenv/config'
+import { randomUUID } from 'node:crypto'
 import cookieParser from 'cookie-parser'
 import cors from 'cors'
 import express from 'express'
@@ -18,6 +19,12 @@ import { requireAuth } from './middleware/requireAuth.js'
 import { scheduleCanvasSync } from './services/canvasSync.js'
 
 const app = express()
+
+app.use((req, res, next) => {
+  req.id = req.get('X-Request-ID') || randomUUID()
+  res.set('X-Request-ID', req.id)
+  next()
+})
 
 app.use(
   cors({

@@ -21,13 +21,13 @@ const updateConversationSchema = z.object({
 const messageSchema = z.object({ content: z.string().trim().min(1).max(12000) })
 const assistantRateLimit = createAssistantRateLimiter({ limit: env.ASSISTANT_RATE_LIMIT, windowMs: env.ASSISTANT_RATE_WINDOW_MINUTES * 60_000 })
 
-function formatClasses(classes) {
+export function formatClasses(classes) {
   if (!classes.length) return 'No weekly classes set.'
   const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
   return classes.map((item) => `${dayNames[item.day]} ${item.start}-${item.end} ${item.title}`).join(', ')
 }
 
-async function buildAssistantContext(userId) {
+export async function buildAssistantContext(userId) {
   const now = new Date()
   const [tasks, classes, events, stats, blocks] = await Promise.all([
     prisma.task.findMany({ where: { userId, status: { not: 'completed' }, OR: [{ deadline: null }, { deadline: { gte: now } }] }, orderBy: { deadline: 'asc' } }),
@@ -47,11 +47,11 @@ async function buildAssistantContext(userId) {
   }
 }
 
-async function findOwnedConversation(id, userId) {
+export async function findOwnedConversation(id, userId) {
   return prisma.conversation.findFirst({ where: { id, userId }, include: { course: { select: { id: true, name: true, courseCode: true } } } })
 }
 
-async function validateCourse(courseId, userId) {
+export async function validateCourse(courseId, userId) {
   if (!courseId) return null
   return prisma.course.findFirst({ where: { id: courseId, userId } })
 }
