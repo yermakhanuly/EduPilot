@@ -24,6 +24,8 @@ const envSchema = z.object({
   DOCUMENT_MAX_SIZE_MB: z.coerce.number().positive().default(10),
   CANVAS_WEBHOOK_SECRET: z.string().optional(),
   CANVAS_SYNC_INTERVAL_MINUTES: z.coerce.number().int().min(0).default(60),
+  CANVAS_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(15000),
+  CANVAS_REQUEST_RETRIES: z.coerce.number().int().min(0).max(5).default(2),
 })
 
 export const env = envSchema.parse(process.env)

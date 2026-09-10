@@ -73,7 +73,7 @@ router.get('/courses', requireAuth, async (req, res) => {
   const courses = await prisma.course.findMany({
     where: { userId },
     orderBy: [{ courseCode: 'asc' }, { name: 'asc' }],
-    select: { id: true, name: true, courseCode: true },
+    select: { id: true, name: true, courseCode: true, source: true },
   })
   return res.json({ courses })
 })

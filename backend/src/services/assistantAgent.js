@@ -156,7 +156,7 @@ function createAssistantTools(userId, actionsPerformed, clientActions, invalidat
         })
         courseId = matchingCourse?.id
       }
-      const results = await searchCourseMaterials({ query, userId, courseId, limit: 3 })
+      const results = await searchCourseMaterials({ query, userId, courseId, limit: 6 })
       if (!results.length) return 'No matching course materials were found.'
       sources.push(...results.map((result) => ({
         title: result.metadata.title ?? 'Course material',
@@ -168,9 +168,14 @@ function createAssistantTools(userId, actionsPerformed, clientActions, invalidat
         heading: result.metadata.heading || null,
         excerpt: result.text.slice(0, 280),
       })))
-      return results.map((result, index) => (
-        `[Source ${index + 1}: ${result.metadata.title ?? 'Course material'}]\n${result.text.slice(0, 1200)}`
-      )).join('\n\n')
+      return results.map((result, index) => {
+        const loc = result.metadata.slideNumber
+          ? ` (Slide ${result.metadata.slideNumber})`
+          : result.metadata.pageNumber
+            ? ` (Page ${result.metadata.pageNumber})`
+            : ''
+        return `[Source ${index + 1}: ${result.metadata.title ?? 'Course material'}${loc}]\n${result.text.slice(0, 2500)}`
+      }).join('\n\n')
     }, {
       name: 'search_course_materials',
       description: 'Search the authenticated user\'s indexed syllabi, notes, announcements, and course files. Use this for course-content questions before answering from memory. The optional course field accepts a course name or code such as GE2260, not an internal ID. If no matching course exists, the search includes all indexed materials.',

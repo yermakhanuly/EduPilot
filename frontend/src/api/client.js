@@ -61,6 +61,12 @@ export const knowledgeApi = {
   async list() {
     return request('/knowledge/documents')
   },
+  async courses() {
+    return request('/knowledge/courses')
+  },
+  async createCourse(payload) {
+    return request('/knowledge/courses', { method: 'POST', body: JSON.stringify(payload) })
+  },
   async upload(file, courseId) {
     const body = new FormData()
     body.append('file', file)
@@ -69,6 +75,9 @@ export const knowledgeApi = {
   },
   async remove(id) {
     return request(`/knowledge/documents/${id}`, { method: 'DELETE' })
+  },
+  async retryFailed() {
+    return request('/knowledge/retry-failed', { method: 'POST' })
   },
 }
 

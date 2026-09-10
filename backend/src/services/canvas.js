@@ -1,5 +1,6 @@
 import { prisma } from '../config/prisma.js'
 import { decrypt, encrypt } from '../utils/crypto.js'
+import { env } from '../config/env.js'
 
 const EXCLUDED_COURSE_NAMES = new Set([
   'cs announcement',
@@ -28,6 +29,34 @@ async function getCredentials(userId) {
     baseUrl: integration.canvasBaseUrl.replace(/\/$/, ''),
     token: decrypt(integration.tokenEncrypted),
   }
+}
+
+function isRetryableStatus(status) {
+  return status === 408 || status === 429 || status >= 500
+}
+
+async function fetchCanvasWithRetry(url, options = {}) {
+  let lastError
+  for (let attempt = 0; attempt <= env.CANVAS_REQUEST_RETRIES; attempt += 1) {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), env.CANVAS_REQUEST_TIMEOUT_MS)
+    try {
+      const response = await fetch(url, { ...options, signal: controller.signal })
+      if (!response.ok && isRetryableStatus(response.status) && attempt < env.CANVAS_REQUEST_RETRIES) {
+        await response.body?.cancel()
+        continue
+      }
+      return response
+    } catch (error) {
+      lastError = error.name === 'AbortError'
+        ? new Error(`Canvas request timed out after ${env.CANVAS_REQUEST_TIMEOUT_MS}ms`)
+        : error
+      if (attempt >= env.CANVAS_REQUEST_RETRIES) throw lastError
+    } finally {
+      clearTimeout(timeout)
+    }
+  }
+  throw lastError ?? new Error('Canvas request failed')
 }
 
 export async function saveCanvasCredentials(userId, baseUrl, token) {
@@ -61,7 +90,7 @@ export async function fetchCanvasResource(userId, path) {
   const { baseUrl, token } = await getCredentials(userId)
   const url = path.startsWith('http') ? path : `${baseUrl}${path}`
 
-  const response = await fetch(url, {
+  const response = await fetchCanvasWithRetry(url, {
     headers: {
       Accept: 'application/json',
       Authorization: `Bearer ${token}`,
@@ -106,7 +135,7 @@ export async function fetchCanvasPaged(userId, path) {
   let nextUrl = path.startsWith('http') ? path : `${baseUrl}${path}`
 
   while (nextUrl) {
-    const response = await fetch(nextUrl, {
+    const response = await fetchCanvasWithRetry(nextUrl, {
       headers: {
         Accept: 'application/json',
         Authorization: `Bearer ${token}`,
@@ -140,7 +169,7 @@ export async function fetchCanvasPaged(userId, path) {
 export async function fetchCanvasBinary(userId, path) {
   const { baseUrl, token } = await getCredentials(userId)
   const url = path.startsWith('http') ? path : `${baseUrl}${path}`
-  const response = await fetch(url, {
+  const response = await fetchCanvasWithRetry(url, {
     headers: { Authorization: `Bearer ${token}` },
   })
   if (!response.ok) {

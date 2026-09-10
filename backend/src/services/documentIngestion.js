@@ -66,14 +66,34 @@ async function extractChunks(buffer, mimeType, filename) {
   if (extension === '.pptx') {
     const ast = await OfficeParser.parseOffice(buffer)
     const result = await ast.to('chunks', { strategy: 'document-structure', splitBy: 'slide', maxChunkSize: 3500 })
-    return result.value
-      .filter((chunk) => chunk?.text)
-      .map((chunk) => ({
-        text: cleanText(chunk.text),
-        slideNumber: chunk.metadata?.slideNumber,
-        heading: chunk.metadata?.closestHeading,
-      }))
-      .filter((chunk) => chunk.text)
+    const slideMap = new Map()
+    for (const chunk of result.value ?? []) {
+      if (!chunk?.text) continue
+      const text = cleanText(chunk.text)
+      if (!text) continue
+      const slideNum = chunk.metadata?.slideNumber ?? 0
+      const heading = chunk.metadata?.closestHeading ?? ''
+      if (!slideMap.has(slideNum)) {
+        slideMap.set(slideNum, { slideNumber: slideNum, heading, textParts: [] })
+      }
+      const entry = slideMap.get(slideNum)
+      if (!entry.heading && heading) entry.heading = heading
+      entry.textParts.push(text)
+    }
+
+    const mergedChunks = []
+    for (const [slideNum, entry] of slideMap.entries()) {
+      const fullSlideText = entry.textParts.join('\n')
+      const subChunks = splitIntoChunks(fullSlideText, 3500, 400)
+      for (const text of subChunks) {
+        mergedChunks.push({
+          text,
+          slideNumber: slideNum || undefined,
+          heading: entry.heading || undefined,
+        })
+      }
+    }
+    return mergedChunks
   }
   const text = cleanText(await extractText(buffer, mimeType, filename))
   return splitIntoChunks(text).map((text) => ({ text }))
