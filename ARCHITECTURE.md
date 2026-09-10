@@ -1,703 +1,444 @@
-# EduPilot — Architecture & Pipeline Reference
+# EduPilot — Architecture & Complete File Reference
 
-A complete map of every file, every technology, and every end-to-end pipeline in the project. Use this as the single source of truth when on-boarding, debugging, or explaining the system.
-
----
-
-## 1. Birds-eye view
-
-```
-                          ┌─────────────────────────────────────┐
-                          │             Browser (User)          │
-                          │   React 19 SPA — Vite dev or dist/  │
-                          └──────────────┬──────────────────────┘
-                                         │  HTTPS (cookies: accessToken, refreshToken)
-                                         ▼
-          ┌──────────────────────────────────────────────────────────┐
-          │                Express API (Node.js, port 4000)           │
-          │                                                           │
-          │   CORS ─► cookie-parser ─► JSON body ─► Router ─► Route   │
-          │                                   │                       │
-          │                                   ▼                       │
-          │                   Zod validation → Service layer          │
-          │                                   │                       │
-          │                                   ▼                       │
-          │                         Prisma ORM (Client)               │
-          └──────────────┬───────────────────────┬────────────────────┘
-                         │                       │
-                         ▼                       ▼
-         ┌──────────────────────┐   ┌────────────────────────┐
-         │  PostgreSQL (Prisma) │   │  External APIs          │
-         │  10 tables           │   │  • Anthropic Claude     │
-         │                      │   │  • Canvas LMS           │
-         └──────────────────────┘   └────────────────────────┘
-
-                         ┌────────────────────────┐
-                         │ ChromaDB                │
-                         │ Gemini embeddings      │
-                         │ document/course RAG     │
-                         └────────────────────────┘
-
-                               ┌───────────────┐
-                               │ Background    │
-                               │ Canvas sync   │ (setInterval, every 60m)
-                               └───────────────┘
-```
-
-Two independent apps: **backend** (Express) and **frontend** (React). They communicate only through HTTP + cookies. No shared code.
+A complete map of every file, technology, and pipeline in the project. Use this as the single source of truth for understanding, extending, or deploying the system.
 
 ---
 
-## 2. Technologies — what each one is for
+## 1. System Overview & Architecture
 
-### Backend
+```
+                                  ┌──────────────────────────────────────────────┐
+                                  │               Browser (User)                 │
+                                  │   React 19 SPA (edupilot.biz / port 5173)    │
+                                  └──────────────────────┬───────────────────────┘
+                                                         │ HTTPS (Cookies: accessToken, refreshToken)
+                                                         │ SSE Streaming (GET/POST /assistant/...)
+                                                         ▼
+                                  ┌──────────────────────────────────────────────┐
+                                  │              Nginx Reverse Proxy             │
+                                  │          (Frontend container / port 80)      │
+                                  └──────────────┬────────────────┬──────────────┘
+                                                 │                │
+                                      / (Static React App)     /api/* (Proxy pass)
+                                                 │                │
+                                                 ▼                ▼
+                                   ┌─────────────────────────────────────────────┐
+                                   │         Express API (Node.js / port 4000)   │
+                                   │                                             │
+                                   │  CORS ──► cookie-parser ──► Request ID ──►  │
+                                   │  JSON parser ──► Rate Limiter ──► Router    │
+                                   └──────────────┬──────────────────┬───────────┘
+                                                  │                  │
+                                                  ▼                  ▼
+                                     ┌──────────────────┐   ┌────────────────────┐
+                                     │ PostgreSQL 16    │   │ ChromaDB           │
+                                     │ Prisma ORM       │   │ Vector Database    │
+                                     │ (12 DB models)   │   │ Distance <= 0.82   │
+                                     └──────────────────┘   └────────┬───────────┘
+                                                                     │
+                                  ┌──────────────────────────────────┴───────────┐
+                                  │ External Services & APIs                    │
+                                  │  • Anthropic Claude (claude-haiku-4-5)       │
+                                  │  • Google Gemini (gemini-embedding-001)     │
+                                  │  • Canvas LMS REST API (OAuth & Webhooks)    │
+                                  └──────────────────────────────────────────────┘
+```
 
-| Tech | Purpose in this project |
+The system comprises four containerized services managed by **Docker Compose**:
+1. **`frontend`**: Nginx web server hosting the compiled React 19 production build and proxying `/api/*` to backend:4000.
+2. **`backend`**: Node.js ESM Express server handling business logic, authentication, Canvas synchronization, document ingestion, and LangGraph/Claude AI assistant orchestration.
+3. **`postgres`**: PostgreSQL 16 database storing user accounts, schedules, tasks, stats, study sessions, Canvas tokens, course definitions, and persistent AI conversations.
+4. **`chroma`**: ChromaDB vector store running cosine similarity search over text chunks extracted from uploaded PDF/DOCX/PPTX files and Canvas course content.
+
+---
+
+## 2. Technology Stack & Key Dependencies
+
+### Backend Technology
+
+| Technology | Role & Purpose in Project |
 |---|---|
-| **Node.js (ESM)** | Runtime. `"type": "module"` in package.json — all imports use ES modules. |
-| **Express 4** | HTTP server + routing. Each resource (`tasks`, `plan`, `auth`, etc.) is its own `Router`. |
-| **Prisma 6** | Type-safe ORM. `schema.prisma` defines models; `prisma migrate` evolves the DB; `PrismaClient` issues queries. |
-| **PostgreSQL** | Relational database. All persistent state — users, tasks, sessions, XP — lives here. |
-| **Zod** | Runtime schema validation. Every route body and `process.env` is parsed with Zod before use — invalid input returns 400, invalid env fails boot. |
-| **jsonwebtoken (JWT)** | Stateless auth. Signs short-lived access (15 min) and longer refresh (7 d) tokens. |
-| **bcryptjs** | Password hashing (cost 10). Used only at signup / login. |
-| **cookie-parser** | Reads the httpOnly `accessToken` / `refreshToken` cookies on each request. |
-| **cors** | Allows the frontend origin (from `CORS_ORIGIN`) to call the API with credentials. |
-| **dotenv** | Loads `.env` into `process.env` before Zod validates it. |
-| **crypto (node built-in)** | AES-256-GCM encryption for Canvas tokens + HMAC-SHA256 for Canvas webhook signatures. |
-| **ESLint 9** | Lint-only — no tests yet. `npm run lint`. |
-| **Vitest** | Test runner (scaffolded, not populated). |
+| **Node.js 20 (ESM)** | Modern JavaScript runtime with native module syntax (`"type": "module"`). |
+| **Express.js 4** | Web server framework handling API routing, middleware chaining, and SSE streaming. |
+| **Prisma ORM 6** | Type-safe database client and migration tool managing PostgreSQL schemas and queries. |
+| **PostgreSQL 16** | Relational database for all persistent application data, user accounts, and AI conversation history. |
+| **ChromaDB 3.5** | High-performance vector database storing document chunk embeddings for RAG retrieval. |
+| **Google Gemini API (`@google/genai`)** | Embedding model (`gemini-embedding-001`) generating 768-dimensional vectors for text chunks. |
+| **Anthropic Claude API (`@langchain/anthropic`)** | Conversational LLM (`claude-haiku-4-5-20251001`) driving the AI study coach with tool calling and SSE streaming. |
+| **LangChain & LangGraph (`@langchain/core`, `@langchain/langgraph`)** | Agentic workflow framework managing tool execution, state transitions, and event streaming. |
+| **Zod 3** | Environment variable and API request validation schema engine with fail-fast boot checks. |
+| **jsonwebtoken & bcryptjs** | Stateless JWT authentication (15m access / 7d refresh) and password hashing (cost factor 10). |
+| **multer** | Memory-storage multipart upload middleware for user document ingestion. |
+| **pdf-parse & officeparser** | Text extraction engines converting PDF, DOCX, and PPTX slide structures into clean text chunks. |
+| **crypto (Node native)** | AES-256-GCM encryption for Canvas tokens and HMAC-SHA256 verification for Canvas webhooks. |
 
-### Frontend
+### Frontend Technology
 
-| Tech | Purpose in this project |
+| Technology | Role & Purpose in Project |
 |---|---|
-| **React 19** | UI framework. Function components + hooks only. |
-| **Vite 7** | Dev server (HMR on port 5173) and production bundler (`vite build` → `dist/`). |
-| **React Router 7** | Client-side routing. Three layouts: `PublicLayout`, `AppLayout`, `StrictLayout`. |
-| **@tanstack/react-query 5** | Server-state cache. Every GET goes through `useQuery`; every mutation invalidates query keys. |
-| **Zustand 4** | Tiny client-state store. Three stores: `authStore`, `themeStore`, `strictStore`. |
-| **Zod** | Imported but mainly used server-side; frontend relies on native form validation + server errors. |
-
-### Cross-cutting
-
-| Tech | Purpose |
-|---|---|
-| **JWT in httpOnly cookies** | Prevents XSS from reading tokens. `credentials: 'include'` on the fetch client sends them automatically. |
-| **LangGraph + Anthropic tool calling** | The `/assistant` route invokes a LangGraph agent backed by Claude; the model calls backend tools (add_task, generate_plan, …) instead of producing plain text. |
-| **Gemini + ChromaDB RAG** | Gemini `gemini-embedding-001` creates embeddings for uploaded materials and Canvas course content; ChromaDB performs user/course-scoped similarity search. |
-| **Document ingestion** | PDF, DOCX, PPTX, TXT, Markdown, and HTML files are parsed and chunked for retrieval. Office images and slide visuals are not indexed. |
-| **Docker Compose** | Runs PostgreSQL, ChromaDB, the Express backend, and the Nginx-served frontend with persistent database and vector-store volumes. |
-| **Canvas LMS REST API** | Source of truth for user assignments / exams / recurring classes. Imported into our DB so the planner can use them. |
+| **React 19** | UI framework utilizing functional components, hooks, and clean state design. |
+| **Vite 7** | Development server with instant HMR and production bundler. |
+| **React Router 7** | Multi-layout client-side routing (`PublicLayout`, `AppLayout`, `StrictLayout`). |
+| **@tanstack/react-query 5** | Server-state cache managing optimistic updates, background refetching, and cache invalidation. |
+| **Zustand 4** | Lightweight state store managing auth user state, theme preferences, strict timer state, and active chat IDs. |
+| **Nginx 1.27** | High-performance web server serving static SPA assets and proxying API traffic in production containers. |
 
 ---
 
-## 3. Repository layout
+## 3. Complete Repository & File Map
+
+### Root Configuration & Orchestration Files
+
+- **`docker-compose.yml`**: Defines the 4-tier stack (`postgres`, `chroma`, `backend`, `frontend`), environment wiring, port bindings, health checks, and persistent volumes (`postgres-data`, `chroma-data`).
+- **`.dockerignore`**: Excludes local node_modules, build outputs, environment files, and git artifacts from Docker contexts.
+- **`README.md`**: Project overview, user guide, development instructions, deployment procedures, and troubleshooting guide.
+- **`CLAUDE.md`**: Developer guidance reference for agentic AI tools and coding conventions.
+- **`ARCHITECTURE.md`**: (This file) Complete technical reference, file catalog, system data flows, and pipeline descriptions.
+
+---
+
+### Backend Directory (`backend/`)
+
+#### Root & Container Config
+- **`backend/Dockerfile`**: Alpine Node.js container setup running Prisma generation, database migration deployment, and production server startup.
+- **`backend/.dockerignore`**: Backend-specific build exclusions.
+- **`backend/.env.example`**: Template environment variable file showing all required and optional keys.
+- **`backend/package.json`**: Backend dependencies, scripts (`dev`, `start`, `lint`, `test`), and ESM project configuration.
+- **`backend/package-lock.json`**: Exact dependency version tree for backend packages.
+
+#### Database (`backend/prisma/`)
+- **`backend/prisma/schema.prisma`**: Single source of truth for relational models (`User`, `UserStats`, `Task`, `WeeklyClass`, `FixedEvent`, `StudyBlock`, `StudySession`, `Reward`, `IntegrationCanvas`, `Course`, `KnowledgeDocument`, `Conversation`, `ChatMessage`).
+- **`backend/prisma/migrations/`**: Directory containing timestamped SQL migration files tracking database schema evolution over time.
+
+#### Source Entry & Config (`backend/src/`)
+- **`backend/src/index.js`**: Server bootstrap file. Configures CORS, JSON body parser with raw-body preservation for webhooks, cookie parser, request ID middleware, health check endpoint, route mounting, error handling, and background Canvas sync timer.
+- **`backend/src/config/env.js`**: Zod schema validating required (`DATABASE_URL`, `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `ENCRYPTION_KEY`) and optional environment variables on boot.
+- **`backend/src/config/prisma.js`**: Reusable singleton instance of `PrismaClient` to maintain database connection pooling across service modules.
+
+#### Middleware (`backend/src/middleware/`)
+- **`backend/src/middleware/requireAuth.js`**: Authentication guard verifying httpOnly JWT access cookies, issuing new cookie pairs (`issueTokens`), clearing cookies on logout (`clearAuthCookies`), and attaching `req.user`.
+- **`backend/src/middleware/assistantRateLimit.js`**: Sliding window rate-limiter for AI endpoints (`X-RateLimit-Limit`, `X-RateLimit-Remaining`, `Retry-After`) with structured latency and status logging.
+
+#### Utilities (`backend/src/utils/`)
+- **`backend/src/utils/crypto.js`**: AES-256-GCM encryption/decryption utilities for secure at-rest storage of user Canvas access tokens.
+
+#### REST Routes (`backend/src/routes/`)
+- **`backend/src/routes/auth.js`**: Authentication handlers (`/signup`, `/login`, `/logout`, `/refresh`, `/me`) managing password hashing, user registration, token issuance, and profile fetching.
+- **`backend/src/routes/tasks.js`**: Task management CRUD (`GET`, `POST`, `PATCH`, `DELETE`). Automatically prunes past deadlines and awards XP on task completion.
+- **`backend/src/routes/classes.js`**: Weekly recurring class schedule CRUD (`GET`, `POST`, `DELETE`).
+- **`backend/src/routes/events.js`**: One-off fixed events (exams, appointments) CRUD (`GET`, `POST`, `DELETE`). Auto-prunes past events.
+- **`backend/src/routes/plan.js`**: Study planner endpoints (`/generate`, `/reoptimize`, `/blocks`). Invokes planner logic and saves `StudyBlock` records.
+- **`backend/src/routes/sessions.js`**: Focus session lifecycle endpoints (`/start`, `/finish`). Computes XP multipliers, streak bonuses, daily limits, and level progression in database transactions.
+- **`backend/src/routes/stats.js`**: Gamification and user metrics endpoints (`/overview`, `/weekly`, `/leaderboard`).
+- **`backend/src/routes/rewards.js`**: Custom reward shop listing endpoints (`/rewards`).
+- **`backend/src/routes/canvas.js`**: Canvas LMS integration endpoints (`/connect`, `/sync`, `/knowledge-sync`, `/courses`, `/week`, `/webhook`). Manages token storage, profile verification, data synchronization, and HMAC webhook processing.
+- **`backend/src/routes/assistant.js`**: AI workspace endpoints (`/conversations`, `/courses`, `/conversations/:id/messages`, `/messages/:id/branch`, `/messages/:id/regenerate`, `/ask`). Supports SSE event streaming (`text/event-stream`), conversation branching, and context building.
+- **`backend/src/routes/knowledge.js`**: Knowledge base and document management endpoints (`/courses`, `/documents`, `/retry-failed`). Manages manual courses, document uploads, and failed indexing retries.
+
+#### Business Logic Services (`backend/src/services/`)
+- **`backend/src/services/planner.js`**: Pure scheduling algorithm. Calculates availability windows, subtracts fixed classes/exams, orders tasks by priority and deadline, and allocates 50-minute study blocks.
+- **`backend/src/services/xp.js`**: Gamification logic. Calculates difficulty, urgency, strict mode, and streak multipliers, level boundaries (`floor(sqrt(totalXp / 100))`), and weekly stats.
+- **`backend/src/services/canvas.js`**: Low-level Canvas API client. Encrypts/decrypts tokens, handles paginated REST calls with timeout and retries, maps Canvas planner items to internal tasks and classes, and executes sync transactions.
+- **`backend/src/services/canvasSync.js`**: Background worker executing periodic Canvas data synchronization across registered users.
+- **`backend/src/services/canvasKnowledge.js`**: Ingests Canvas course front pages, module files, page content, and announcements into the RAG vector knowledge base with partial-failure resilience.
+- **`backend/src/services/documentIngestion.js`**: File processing service. Parses PDF, DOCX, PPTX, TXT, Markdown, and HTML files, extracts slide/page metadata, chunks text, and embeds vectors into ChromaDB.
+- **`backend/src/services/embeddings.js`**: Google Gemini API client wrapping `gemini-embedding-001` for document chunking and query vectorization.
+- **`backend/src/services/vectorStore.js`**: ChromaDB vector store client. Performs cosine similarity queries filtered by `userId`, optional `courseId`, and distance threshold (`<= 0.82`).
+- **`backend/src/services/retriever.js`**: High-level retrieval interface connecting user queries to Gemini query embeddings and ChromaDB vector search.
+- **`backend/src/services/assistantAgent.js`**: Core AI agent service using LangGraph and Anthropic Claude. Registers internal app actions as tools (`add_task`, `add_class`, `add_event`, `generate_plan`, `set_theme`, `navigate`, `search_course_materials`), executes tool workflows, and streams status/delta events.
+
+#### Test Suites (`backend/src/**/__tests__/`)
+- **`backend/src/services/__tests__/planner.test.js`**: Unit tests verifying deterministic scheduling logic and availability constraint handling.
+- **`backend/src/services/__tests__/assistantRateLimit.test.js`**: Unit tests verifying sliding window rate limits and response headers.
+- **`backend/src/services/__tests__/canvasKnowledge.test.js`**: Unit tests verifying error isolation during Canvas knowledge ingestion.
+- **`backend/src/services/__tests__/vectorStore.test.js`**: Unit tests verifying ChromaDB query filter construction and distance thresholding.
+- **`backend/src/services/__tests__/assistantAgent.test.js`**: Unit tests verifying Claude title generation and AI assistant module behavior.
+- **`backend/src/routes/__tests__/assistantAuth.test.js`**: Integration tests verifying cross-user conversation ownership, course context validation, and access denial.
+- **`backend/src/routes/__tests__/assistantHelpers.test.js`**: Unit tests for class formatting, context assembly, and helper queries.
+
+---
+
+### Frontend Directory (`frontend/`)
+
+#### Root & Container Config
+- **`frontend/Dockerfile`**: Multi-stage Docker build producing Vite production dist assets and serving them via Alpine Nginx.
+- **`frontend/nginx.conf`**: Nginx web server configuration serving static React files on port 80 and proxying `/api/` to `backend:4000`.
+- **`frontend/.dockerignore`**: Frontend-specific build exclusions.
+- **`frontend/package.json`**: Frontend dependencies (React 19, React Router 7, TanStack Query, Zustand, Vite) and scripts (`dev`, `build`, `lint`, `preview`).
+- **`frontend/package-lock.json`**: Exact dependency lockfile for frontend packages.
+- **`frontend/vite.config.js`**: Vite build configuration including local development proxy setup forwarding `/api` to port 4000.
+- **`frontend/eslint.config.js`**: ESLint flat configuration for React hooks, JSX, and code quality rules.
+- **`frontend/index.html`**: Main HTML template loading Vite entry script (`/src/main.jsx`).
+
+#### Core Shell & Entry (`frontend/src/`)
+- **`frontend/src/main.jsx`**: Application entry point. Mounts the React application tree inside `QueryClientProvider` and renders `App`.
+- **`frontend/src/App.jsx`**: Root component. Checks session auth (`authApi.me`), initializes theme custom data attributes, and renders `RouterProvider`.
+- **`frontend/src/router.jsx`**: Router tree definition grouping routes under `PublicLayout`, `AppLayout`, and `StrictLayout`.
+- **`frontend/src/index.css`**: Global CSS variables, theme design tokens (dark/light), typography, and reset styles.
+- **`frontend/src/App.css`**: Complete component styling, layout grids, gamification card borders, assistant workspace styles, and responsive media queries.
+
+#### API Client (`frontend/src/api/client.js`)
+Centralized HTTP client wrapping `fetch`. Automatically attaches credentials (cookies), handles 401 token refresh retries, processes standard JSON responses, and implements SSE event streaming reader (`streamRequest`) for real-time AI assistant responses.
+
+#### State Stores (`frontend/src/store/`)
+- **`frontend/src/store/authStore.js`**: Zustand store managing current user session state (`user`, `setUser`, `logout`).
+- **`frontend/src/store/themeStore.js`**: Zustand store managing theme preferences (`dark` vs `light`), persisted to `localStorage`.
+- **`frontend/src/store/strictStore.js`**: Zustand store managing active focus sprint state (`active`, `mode`, `endsAt`, `focusMinutes`, `breakMinutes`).
+- **`frontend/src/store/assistantStore.js`**: Zustand store managing active conversation selection (`activeConversationId`, `setActiveConversationId`) shared between the floating FAB and full Assistant workspace.
+
+#### Layout Shells (`frontend/src/layouts/`)
+- **`frontend/src/layouts/PublicLayout.jsx`**: Public navigation layout for landing, login, and signup pages.
+- **`frontend/src/layouts/AppLayout.jsx`**: Authenticated layout featuring sidebar navigation, topbar with streak/level badges, content shell, mobile bottom bar, and global `<AssistantPanel />` floating FAB.
+- **`frontend/src/layouts/StrictLayout.jsx`**: Full-screen distraction-free layout for focus sessions with all main navigation hidden.
+
+#### Page Components (`frontend/src/pages/`)
+- **`frontend/src/pages/LandingPage.jsx`**: Product landing page highlighting timetable features, Canvas integration, gamification, and AI study coaching.
+- **`frontend/src/pages/LoginPage.jsx`**: User login form with client validation and auth store update.
+- **`frontend/src/pages/SignupPage.jsx`**: Account creation form creating user and stats records.
+- **`frontend/src/pages/DashboardPage.jsx`**: Main user dashboard displaying streak/level stats, upcoming deadlines, weekly focus blocks, and quick action cards.
+- **`frontend/src/pages/PlanPage.jsx`**: Weekly timetable page with class, event, and task schedule generation and interactive study block display.
+- **`frontend/src/pages/TasksPage.jsx`**: Task management page featuring task creation, priority/difficulty adjustments, deadline formatting, and completion XP awards.
+- **`frontend/src/pages/ProgressPage.jsx`**: Analytics page displaying focus time charts, level progression, and global XP leaderboard.
+- **`frontend/src/pages/RewardsPage.jsx`**: Gamification shop page where users spend earned XP to unlock custom user rewards.
+- **`frontend/src/pages/SettingsPage.jsx`**: Account preferences page for theme toggling, strict timer duration adjustments, and logout.
+- **`frontend/src/pages/CanvasIntegrationPage.jsx`**: Canvas LMS settings page managing API tokens, manual syncs, and course material indexing triggers.
+- **`frontend/src/pages/MaterialsPage.jsx`**: Knowledge base management page with course accordions (`▶`/`▼`), manual course creation, file uploads (PDF, DOCX, PPTX, text), and retry controls for failed indexing.
+- **`frontend/src/pages/AssistantPage.jsx`**: Full-screen AI workspace. Supports conversation creation, title search, course context filtering, active-branch message history, real-time SSE streaming, tool activity badges, inline message branching/editing, response regeneration, copy actions, and mobile conversation drawers.
+- **`frontend/src/pages/StrictModePage.jsx`**: Full-screen focus sprint page with countdown timer, ambient controls, task completion, and XP calculation.
+
+#### Reusable UI Components & Helpers (`frontend/src/components/`, `hooks/`, `utils/`, `data/`)
+- **`frontend/src/components/AssistantPanel.jsx`**: Floating AI assistant panel (FAB) available on all app pages. Shares the active conversation with `AssistantPage` and streams responses.
+- **`frontend/src/components/FormattedText.jsx`**: Custom lightweight Markdown renderer supporting code blocks (`` ``` ``), inline code (`` `code` ``), bold (`**text**`), italics (`*text*`), bullet lists, numbered lists, and headings.
+- **`frontend/src/hooks/usePageTitle.js`**: Hook dynamically setting `document.title` based on the active React Router location path.
+- **`frontend/src/utils/time.js`**: Relative time formatting helper (`formatTimeUntil`) converting dates into human-readable deadline text ("Due in 2 days", "Past due").
+- **`frontend/src/data/mockData.js`**: Fallback mock data structures for offline or initial UI prototyping.
+
+---
+
+## 4. End-to-End Data & Execution Pipelines
+
+### Pipeline 1: AI Assistant Chat with Real-Time SSE Streaming & Tool Execution
 
 ```
-EduPilot/
-├── backend/                      # Express API
-│   ├── prisma/
-│   │   ├── schema.prisma         # DB model definitions
-│   │   └── migrations/           # SQL migration history
-│   ├── src/
-│   │   ├── index.js              # App entry — wires middleware + routers
-│   │   ├── config/
-│   │   │   ├── env.js            # Zod-validated process.env → exported `env`
-│   │   │   └── prisma.js         # Singleton PrismaClient
-│   │   ├── middleware/
-│   │   │   └── requireAuth.js    # verify JWT, attach req.user, cookie helpers
-│   │   ├── routes/               # One file per REST resource (9 routers)
-│   │   │   ├── auth.js
-│   │   │   ├── tasks.js
-│   │   │   ├── classes.js
-│   │   │   ├── events.js
-│   │   │   ├── plan.js
-│   │   │   ├── sessions.js
-│   │   │   ├── stats.js
-│   │   │   ├── rewards.js
-│   │   │   ├── canvas.js
-│   │   │   └── assistant.js
-│   │   ├── services/             # Pure business logic
-│   │   │   ├── planner.js
-│   │   │   ├── xp.js
-│   │   │   ├── canvas.js
-│   │   │   └── canvasSync.js
-│   │   └── utils/
-│   │       └── crypto.js         # AES-256-GCM encrypt/decrypt
-│   └── package.json
-│
-├── frontend/                     # React SPA
-│   ├── index.html                # Vite entry HTML
-│   ├── src/
-│   │   ├── main.jsx              # Mounts <App /> inside QueryClientProvider
-│   │   ├── App.jsx               # Bootstraps auth + theme, renders Router
-│   │   ├── router.jsx            # Route tree (3 layouts)
-│   │   ├── index.css             # Design tokens (CSS custom properties)
-│   │   ├── App.css               # Component styles
-│   │   ├── api/
-│   │   │   └── client.js         # fetch wrapper + per-resource objects
-│   │   ├── store/                # Zustand stores (auth, theme, strict)
-│   │   ├── layouts/              # PublicLayout, AppLayout, StrictLayout
-│   │   ├── pages/                # 11 route components
-│   │   ├── components/
-│   │   │   └── AssistantPanel.jsx # AI chat FAB
-│   │   ├── hooks/
-│   │   │   └── usePageTitle.js
-│   │   └── utils/
-│   │       └── time.js           # formatTimeUntil()
-│   └── package.json
-│
-├── CLAUDE.md                     # AI-assistant guidance for this repo
-├── ARCHITECTURE.md               # (this file)
-└── README.md
+User types prompt on AssistantPage or AssistantPanel
+                        │
+                        ▼
+          POST /assistant/conversations/:id/messages (SSE mode)
+                        │
+                        ├─► verify auth & ownership
+                        ├─► load active message branch history (last 20)
+                        ├─► insert user ChatMessage record
+                        └─► invoke runAssistant({ onEvent, signal })
+                                      │
+                                      ▼
+                        LangGraph Agent Loop
+                                      │
+          ┌───────────────────────────┴───────────────────────────┐
+          ▼                                                       ▼
+   Tool Called (e.g. search_course_materials)             LLM Token Chunk
+          │                                                       │
+          ▼                                                       ▼
+onEvent({ type: 'status' })                            onEvent({ type: 'delta' })
+  "⚡ Searching course materials..."                      Streams text tokens
+          │                                                       │
+          ▼                                                       ▼
+res.write("data: {...}\n\n")                            res.write("data: {...}\n\n")
+          │                                                       │
+          └───────────────────────────┬───────────────────────────┘
+                                      │
+                                      ▼
+                        Agent Loop Completes
+                                      │
+                        ├─► insert assistant ChatMessage record (with sources & actions JSON)
+                        ├─► auto-generate title on 1st message (generateConversationTitle)
+                        └─► res.write("data: { type: 'done', ... }\n\n")
 ```
 
 ---
 
-## 4. Backend — file-by-file
+### Pipeline 2: Document Ingestion & RAG Vector Search
 
-### `backend/src/index.js`
-Bootstraps the Express app.
-1. `app.use(cors({ origin: env.CORS_ORIGIN.split(','), credentials: true }))` — whitelists frontend origins.
-2. `express.json({ verify })` — parses JSON **and** saves the raw body on `req.rawBody` (needed for HMAC signature verification on Canvas webhooks).
-3. `cookieParser()` — so routes can read `req.cookies.accessToken`.
-4. `GET /health` — liveness probe.
-5. Mounts 10 routers under their prefixes (`/auth`, `/tasks`, `/classes`, …).
-6. Centralized error handler logs + returns `500`.
-7. `app.listen(env.PORT)` and kicks off `scheduleCanvasSync(...)`.
-
-### `backend/src/config/env.js`
-Zod schema for every env var. **Fails the process on boot** if something required is missing (DATABASE_URL, JWT secrets, ENCRYPTION_KEY ≥ 32 chars). Optional vars include ANTHROPIC_API_KEY, GEMINI_API_KEY, GEMINI_EMBEDDING_MODEL, GEMINI_EMBEDDING_DIMENSIONS, CHROMA_URL, DOCUMENT_MAX_SIZE_MB, CANVAS_WEBHOOK_SECRET, COOKIE_DOMAIN, and CANVAS_SYNC_INTERVAL_MINUTES (default 60).
-
-### `backend/src/config/prisma.js`
-Exports a single `PrismaClient` instance. Reused everywhere to pool DB connections.
-
-### `backend/src/middleware/requireAuth.js`
-Three exports:
-- `issueTokens(res, user)` — signs access (15 m) + refresh (7 d) JWTs and sets them as httpOnly cookies.
-- `clearAuthCookies(res)` — on logout or invalid refresh.
-- `requireAuth(req, res, next)` — verifies `req.cookies.accessToken`, attaches `req.user = { id, email }`, or returns 401.
-
-### `backend/src/utils/crypto.js`
-AES-256-GCM wrappers. Used by `services/canvas.js` to store the user's Canvas API token encrypted-at-rest. The 32-byte key comes from `env.ENCRYPTION_KEY`.
 ```
-encrypt(plain) → base64(iv || authTag || ciphertext)
-decrypt(blob)  → plaintext
+User uploads PDF / PPTX on MaterialsPage  OR  Canvas Knowledge Sync runs
+                        │
+                        ▼
+          POST /knowledge/documents (or syncCanvasKnowledge)
+                        │
+                        ├─► validate format & calculate SHA-256 checksum
+                        ├─► insert KnowledgeDocument record (status: 'processing')
+                        └─► ingestDocument()
+                                      │
+                                      ▼
+          extractChunks(buffer, mimeType, filename)
+            • PDF: parse page numbers & split into ~3500 char chunks
+            • PPTX: OfficeParser AST ──► merge slide text ──► slideNumber metadata
+            • DOCX / Text: clean whitespace ──► split into chunks
+                                      │
+                                      ▼
+          embedDocuments(texts) ──► Gemini API (gemini-embedding-001)
+                                      │
+                                      ▼
+          addChunks() ──► Upsert embeddings & metadata into ChromaDB
+                                      │
+                                      ▼
+          Update KnowledgeDocument (status: 'ready')
 ```
-
-### `backend/src/routes/auth.js`
-| Endpoint | Behavior |
-|---|---|
-| `POST /auth/signup` | Validate, bcrypt-hash password, create `User` + empty `UserStats` in one query, issue tokens. |
-| `POST /auth/login` | Find user, `bcrypt.compare`, issue tokens. |
-| `POST /auth/logout` | Clear cookies. |
-| `POST /auth/refresh` | Verify refresh cookie → re-issue both tokens. |
-| `GET /auth/me` | Return the current user + stats (requires access token). |
-
-### `backend/src/routes/tasks.js`
-- On every `GET /tasks`: auto-prunes past-deadline tasks and completed manual tasks, then returns the rest ordered by deadline.
-- `POST /tasks` — creates a manual task (status `pending`).
-- `PATCH /tasks/:id` — can update any field; **when status transitions to `completed`**: sets `completedAt`, and if the task has been alive ≥ 5 min and hasn't been awarded yet, adds `+20 XP` to `UserStats` atomically (Prisma transaction).
-- `DELETE /tasks/:id` — hard delete.
-
-### `backend/src/routes/classes.js`
-CRUD for recurring weekly classes. Day stored as `0..6` (0=Monday), start/end as `"HH:MM"` strings. Validates `end > start`.
-
-### `backend/src/routes/events.js`
-CRUD for one-off `FixedEvent`s (exams, appointments). Past events are auto-deleted on list.
-
-### `backend/src/routes/plan.js`
-Three endpoints, all operate on `weekStart` (ISO date of a Monday).
-- `POST /plan/generate` — pulls tasks + classes + fixed events from DB (or uses body overrides), calls `generatePlan()`, deletes existing blocks for that week, inserts new ones.
-- `POST /plan/reoptimize` — same but bumps the priority of `missedTaskIds` and tags output `source: "reoptimize"`.
-- `GET /plan/blocks?weekStart=…` — returns the saved `StudyBlock`s for that week, joined with `task.title`.
-
-### `backend/src/routes/sessions.js`
-The XP loop lives here.
-- `POST /sessions/start` — create `StudySession { status: 'in-progress' }`, mark the linked `StudyBlock` in-progress if any.
-- `POST /sessions/finish` — the heart of gamification. See pipeline in §6.
-
-### `backend/src/routes/stats.js`
-- `GET /stats/overview` — returns `UserStats`, level info (from `levelFromXp`), and up to 5 upcoming tasks for the dashboard.
-- `GET /stats/weekly` — aggregates the last 7 days of sessions.
-- `GET /stats/leaderboard?limit=` — top users by `totalXp` (clamped 1..50).
-
-### `backend/src/routes/rewards.js`
-`GET /rewards` — lists the user's rewards (the creation side is currently manual / unused).
-
-### `backend/src/routes/canvas.js`
-- `POST /canvas/connect` — stores the encrypted token, verifies by calling `/api/v1/users/self/profile`, then imports the next 30 days.
-- `POST /canvas/sync` — manual re-sync.
-- `GET /canvas/courses` — proxy to Canvas courses.
-- `GET /canvas/week?start=&end=` — proxy to Canvas planner items.
-- `POST /canvas/webhook` — HMAC-SHA256 signature check (`verifyCanvasSignature`), then re-imports for the matching user.
-
-### `backend/src/routes/assistant.js`
-Agentic AI endpoint. See §8.
-
-### Services
-
-- **`services/planner.js`** — pure scheduling algorithm (no DB). Two exports: `generatePlan` and `reoptimizePlan`.
-- **`services/xp.js`** — pure math: `difficultyMultiplier`, `urgencyMultiplier`, `strictModeMultiplier`, `streakBonusMultiplier`, `computeSessionBaseXp`, `applyStreakBonus`, `levelFromXp`, `computeWeeklyStats`.
-- **`services/canvas.js`** — Canvas HTTP client + import logic. Handles pagination (`Link: rel="next"`), decrypts token per request, maps planner items to tasks / events / weekly classes, and runs the import inside a transaction.
-- **`services/canvasSync.js`** — background job. `scheduleCanvasSync({ intervalMinutes })` sets a `setInterval` + 15-s initial delay, iterates every user with a Canvas token, calls `importCanvasData`, and uses a module-level `isSyncing` flag to avoid overlaps.
 
 ---
 
-## 5. Frontend — file-by-file
+### Pipeline 3: Course-Scoped Vector Retrieval
 
-### `frontend/src/main.jsx`
-Creates the React root, wraps everything in `QueryClientProvider`, imports both CSS files.
-
-### `frontend/src/App.jsx`
-On mount, calls `authApi.me()` once and stores the result in `authStore`. Also subscribes to `themeStore` so the `data-theme` attribute stays applied. Renders `<RouterProvider router={router} />`.
-
-### `frontend/src/router.jsx`
-Three layout branches:
-| Path | Layout | Children |
-|---|---|---|
-| `/`, `/login`, `/signup` | `PublicLayout` | landing + auth pages |
-| `/app/*` | `AppLayout` (sidebar, topbar, assistant) | dashboard, plan, tasks, progress, rewards, settings, integrations/canvas |
-| `/app/strict` | `StrictLayout` (full-screen timer) | StrictModePage |
-
-Unknown paths redirect to `/`.
-
-### `frontend/src/api/client.js`
-Thin fetch wrapper.
-- Base URL from `import.meta.env.VITE_API_URL` (default `http://localhost:4000`).
-- Always sends `credentials: 'include'` so cookies ride along.
-- **Auto-refresh on 401:** if a call returns 401 (and isn't one of login/signup/refresh), it calls `/auth/refresh` and retries the original once. If refresh fails, the original 401 surfaces.
-- Exports one object per resource: `authApi`, `planApi`, `canvasApi`, `taskApi`, `classApi`, `eventApi`, `statsApi`, `sessionsApi`, `rewardsApi`, `assistantApi`.
-
-### `frontend/src/store/authStore.js`
-`{ user, setUser, logout }`. `user === undefined` means "not yet known" (used to block redirects).
-
-### `frontend/src/store/themeStore.js`
-`dark` or `light`, persisted to `localStorage` under `edupilot-theme`. Applies via `document.documentElement.dataset.theme = ...` so CSS variables in `:root[data-theme='light']` take effect.
-
-### `frontend/src/store/strictStore.js`
-Focus-timer state: `active`, `mode` (`focus` | `break`), `endsAt` (epoch ms), `focusMinutes`, `breakMinutes`. Durations persisted to localStorage.
-
-### `frontend/src/layouts/PublicLayout.jsx`
-Landing / login / signup shell — brand + nav, nothing else.
-
-### `frontend/src/layouts/AppLayout.jsx`
-Authenticated shell:
-- Sidebar (with icon-enhanced nav items), topbar (streak / level pills, quick actions), mobile bottom nav (subset of links).
-- Uses `useQuery(['stats-overview'])` to show streak + level in the topbar.
-- Mounts `<AssistantPanel />` so the AI FAB is available on every app page except `/settings`.
-
-### `frontend/src/layouts/StrictLayout.jsx`
-Full-screen focus layout: big timer, "Exit Strict Mode" button. All other navigation is hidden while the sprint is active.
-
-### Pages
-| Page | Data it uses |
-|---|---|
-| `LandingPage` | Static marketing page. |
-| `LoginPage` / `SignupPage` | `authApi.login` / `signup` → sets `authStore.user` → redirect `/app`. |
-| `DashboardPage` | `statsApi.overview`, `planApi.blocks(weekStart)`. 4 semantic stat cards + today's plan + active tasks. |
-| `PlanPage` | `planApi.blocks(weekStart)`, `planApi.generate(...)`, the CRUD APIs for classes/tasks/events to drive a timetable view. |
-| `TasksPage` | `taskApi.list`, `create`, `update`, `remove`. Invalidates `['tasks']`, `['stats-overview']`, `['stats-weekly']`. |
-| `ProgressPage` | `statsApi.overview`, `statsApi.weekly`, `statsApi.leaderboard`. |
-| `RewardsPage` | `rewardsApi.list`. |
-| `SettingsPage` | Toggles theme, edits strict-mode durations, lets the user log out. |
-| `CanvasIntegrationPage` | `canvasApi.connect`, `sync`, `getCourses`. |
-| `StrictModePage` | `planApi.blocks`, `rewardsApi.list`, `sessionsApi.start/finish`. Drives the focus timer + XP award flow. |
-
-### `frontend/src/components/AssistantPanel.jsx`
-Persistent chat FAB in the bottom-right of `AppLayout`. On submit:
-1. Appends the user turn to local state + localStorage (`edupilot_chat_${userId}`).
-2. Calls `assistantApi.ask({ question, history })` (last 20 turns).
-3. On success, appends the assistant turn, applies `clientActions` (`set_theme`, `navigate`), and calls `queryClient.invalidateQueries({ queryKey: [key] })` for every key the server returned in `invalidateQueries`.
-
-### `frontend/src/hooks/usePageTitle.js`
-Syncs `document.title` with the current route.
-
-### `frontend/src/utils/time.js`
-`formatTimeUntil(deadline)` → `"Due in 3 days"`, `"Past due"`, `"No deadline"`, etc.
-
-### `frontend/src/index.css` + `App.css`
-CSS custom properties as design tokens (two themes), then component styles. Semantic gamification colors (`--color-xp` emerald, `--color-streak` amber, `--color-level` violet) drive stat-card left borders and pill variants.
+```
+Assistant invokes search_course_materials tool
+                        │
+                        ▼
+          searchCourseMaterials({ query, userId, courseId, limit: 6 })
+                        │
+                        ├─► embedQuery(query) ──► Gemini API
+                        └─► searchChunks({ embedding, userId, courseId, maxDistance: 0.82 })
+                                      │
+                                      ▼
+                        ChromaDB Cosine Search
+                                      │
+                        Filter: userId AND courseId (if selected)
+                        Filter: distance <= 0.82 (rejects irrelevant chunks)
+                                      │
+                                      ▼
+                        Return top matching excerpts + metadata
+                        (document title, page number, slide number, heading)
+```
 
 ---
 
-## 6. The critical pipelines, step by step
-
-### Pipeline A — Signup
-
-```
-POST /auth/signup { email, password, name }
-  │
-  ├─► Zod (signupSchema) validates input
-  ├─► prisma.user.findUnique({ email })  — reject if exists (409)
-  ├─► bcrypt.hash(password, 10)
-  ├─► prisma.user.create({ ..., stats: { create: {} } })   — one txn
-  ├─► issueTokens(res, user)  — sets 2 httpOnly cookies
-  └─► 201 { user: { id, email, name } }
-```
-
-### Pipeline B — Every authenticated frontend request
-
-```
-Component ──► useQuery / useMutation
-          └─► apiClient.request(path)
-                 │ credentials: 'include'  (sends cookies)
-                 ▼
-           Express CORS check ──► cookieParser ──► JSON body
-                                        │
-                                        ▼
-                                 requireAuth
-                            jwt.verify(accessToken)
-                                   │ OK           │ expired / invalid
-                                   ▼              ▼
-                              req.user = {id}    401
-                                   │              │
-                                   ▼              ▼
-                              Route handler   Client sees 401
-                                   │              │
-                                   ▼              ▼
-                              Zod validate   apiClient retries once
-                                   │         after POST /auth/refresh
-                                   ▼
-                             Prisma query
-                                   │
-                                   ▼
-                               res.json(...)
-```
-
-### Pipeline C — Create a task → show on dashboard
-
-```
-User fills form on TasksPage
-      │
-      ▼
-createMutation.mutate(form)
-      │
-      ▼
-taskApi.create() → POST /tasks
-      │
-      ▼  (requireAuth → Zod createTaskSchema → Prisma)
-prisma.task.create({ ..., userId })
-      │
-      ▼
-201 { task }
-      │
-      ▼
-TasksPage.onSuccess:
-   queryClient.invalidateQueries(['tasks'])
-   queryClient.invalidateQueries(['stats-overview'])  (on update only)
-      │
-      ▼
-Dashboard & Tasks pages refetch; UI updates.
-```
-
-### Pipeline D — Generate a weekly study plan
+### Pipeline 4: Automated Study Planner Algorithm
 
 ```
 User clicks "Build plan" on PlanPage
-      │
-      ▼
-POST /plan/generate?weekStart=YYYY-MM-DD
-      │
-      ▼  requireAuth → Zod planBodySchema
-resolvePlanInputs(userId, body, weekStart):
-   • pull tasks (status != completed, deadline >= now OR null)
-   • prune stale tasks (past deadline, completed-manual)
-   • pull weekly classes + fixed events
-   • expand each class into concrete start/end for this week
-   • merge classes+events into fixedEvents list
-      │
-      ▼
-generatePlan({ weekStart, tasks, fixedEvents, availabilityRules })
-   │
-   ├── buildAvailabilityWindows   ──► [ { start, end } per day ]
-   ├── subtractFixedEvents        ──► cuts classes/exams out of windows
-   │                                  (keeps segments ≥ 25 min)
-   ├── sortTasks                  ──► by priority desc → deadline asc → title
-   └── allocateBlocks             ──► for each task, fill 50-min slots
-                                     (+10 min buffer between blocks)
-      │
-      ▼
-returns { blocks[], unscheduledTasks[], summary }
-      │
-      ▼
-prisma.studyBlock.deleteMany (for that week)
-prisma.studyBlock.createMany (new blocks)
-      │
-      ▼
-200 { blocks, summary, unscheduledTasks }
-      │
-      ▼
-PlanPage invalidates ['plan-blocks', weekStart]; UI re-renders.
-```
-
-### Pipeline E — Strict-mode focus session → XP award
-
-```
-User clicks "Start 45m focus" on StrictModePage
-      │
-      ▼
-strictStore.start(45)         ─► client timer begins ticking
-POST /sessions/start           ─► creates StudySession(status: 'in-progress')
-                                   (also flips StudyBlock.status if blockId given)
-      │
-      │  … 45 minutes of focused work …
-      │
-      ▼
-Timer reaches 0:
-POST /sessions/finish { sessionId, focusedMinutes: 45, completed: true, strictMode: true }
-      │
-      ▼  requireAuth + Zod finishSchema
-Look up session + userStats.
-isValidSession = completed && focusedMinutes >= 10
-      │
-      ▼
-baseSessionXp = computeSessionBaseXp({
-    minutes,
-    difficulty (from task), deadline (from task), strictMode
-})
-  = minutes × 1
-    × difficultyMultiplier (easy 1, medium 1.25, hard 1.5)
-    × urgencyMultiplier    (<24h 1.2, <72h 1.1, else 1)
-    × strictModeMultiplier (1.15 if strict)
-      │
-      ▼
-Daily bookkeeping (to make the streak bonus non-exploitable):
-  isNewDay  = stats.dailyDate != today
-  dailyBase = (isNewDay ? 0 : stats.dailyBaseXp) + baseSessionXp
-  dailyXp   = dailyBase × streakBonusMultiplier(newStreak)
-                            (4+ → 1.05, 8+ → 1.1, 15+ → 1.2)
-  xpEarned  = max(0, dailyXp - dailyXpBefore)
-      │
-      ▼
-Streak update:
-  no prior session  → 1
-  last session today → unchanged
-  last session yesterday → +1
-  else (gap) → 1
-      │
-      ▼
-prisma.$transaction:
-  • studySession.update { endedAt, focusedMinutes, status, xpEarned }
-  • userStats.upsert   { totalXp, weeklyXp, streak, daily*, level = floor(sqrt(totalXp/100)) }
-  • studyBlock status → completed / missed (if linked)
-      │
-      ▼
-200 { session, xpEarned }
-      │
-      ▼
-StrictModePage invalidates ['stats-overview','stats-weekly','rewards'];
-Dashboard topbar & progress page update automatically.
-```
-
-### Pipeline F — Canvas connect → import
-
-```
-User pastes Canvas base URL + token on CanvasIntegrationPage
-      │
-      ▼
-POST /canvas/connect
-      │
-      ▼
-saveCanvasCredentials(userId, baseUrl, token)
-   • encrypt(token) with AES-256-GCM (utils/crypto.js)
-   • upsert IntegrationCanvas row
-      │
-      ▼
-testCanvasConnection → GET /api/v1/users/self/profile on Canvas
-      │
-      ▼
-saveCanvasProfile → store Canvas user id
-      │
-      ▼
-importCanvasData(userId, defaultCanvasRange(30)):
-   • Pull known completed externalIds (so we don't re-import finished tasks)
-   • fetchCanvasWeek → /api/v1/planner/items?start=…&end=… (paginated via Link header)
-   • For each item: mapPlannerItem →
-        - assignment →  Task (source: 'canvas', externalId)
-        - recurring calendar event → WeeklyClass
-        - one-off calendar event → FixedEvent (type: 'exam')
-   • Inside a single Prisma transaction:
-        - delete existing canvas-source tasks (except completed)
-        - delete existing canvas events + canvas classes
-        - createMany new rows
-        - update IntegrationCanvas.lastImportedAt
-      │
-      ▼
-200 { success, profile, imported: { tasks, events, classes } }
-
-Background: scheduleCanvasSync runs every CANVAS_SYNC_INTERVAL_MINUTES.
-Webhook: POST /canvas/webhook → HMAC-SHA256 verify → importCanvasData for that Canvas user id.
-```
-
-### Pipeline G — AI assistant with tool calling
-
-```
-User types into AssistantPanel
-      │
-      ▼
-POST /assistant/ask { question, history }
-      │
-      ▼  requireAuth + Zod askSchema
-Build live context from DB:
-  • upcoming tasks, weekly classes, upcoming fixed events
-  • user stats, next 12 study blocks
-      │
-      ▼
-systemMessages = [
-  "You are EduPilot… (behaviour rules)
-   Today's date is YYYY-MM-DD (year 2026).
-   You MUST always call a tool. Use send_reply for plain replies.
-   For dates without a year, assume current year.",
-  "Current user data: <JSON context>"
-]
-      │
-      ▼
-LangGraph agent invocation with Anthropic Claude and typed LangChain tools
-      │
-      ▼
-The Claude-backed agent calls tools as needed. Tools available:
-   add_class, remove_class, add_task, remove_task,
-   add_event, remove_event, generate_plan,
-   set_theme, navigate, send_reply
-      │
-      ▼
-For each tool call, backend dispatches to Prisma:
-   add_task     → prisma.task.create         (+invalidate tasks, stats-overview, stats-weekly)
-   remove_task  → prisma.task.deleteMany     (+same)
-   add_class    → prisma.weeklyClass.create  (+invalidate classes)
-   add_event    → prisma.fixedEvent.create   (+invalidate events, stats-overview)
-   generate_plan → run planner.generatePlan + replace StudyBlocks
-   set_theme    → clientActions.push({ type:'set_theme', value })
-   navigate     → clientActions.push({ type:'navigate', to })
-   send_reply   → sendReplyText = args.message
-      │
-      ▼
-Response:
-  {
-    answer:           sendReplyText || summary of actions,
-    actionsPerformed: [...],
-    clientActions:    [...],       // executed on the frontend
-    invalidateQueries: [...]       // React Query keys to refetch
-  }
-      │
-      ▼
-AssistantPanel:
-  • appends assistant message
-  • setTheme / navigate for clientActions
-  • queryClient.invalidateQueries for each key → UI everywhere updates
-```
-
-**Why `tool_choice: 'required'` + `send_reply`?** Previously `tool_choice: 'auto'` let the model reply with plain text that *claimed* "I added it!" without actually calling a tool — so no DB write happened. Forcing a tool call every turn (with `send_reply` as the no-op fallback) closes that gap.
-
----
-
-## 7. Request → response flow (generic)
-
-```
-Browser                   Express                    Service               Prisma
-   │                         │                          │                     │
-   │── fetch(/resource) ───►│                          │                     │
-   │  cookies attached       │── CORS / cookies ──►     │                     │
-   │                         │── requireAuth ────►      │                     │
-   │                         │── Zod parse ──────►      │                     │
-   │                         │── handler ───────────────►                     │
-   │                         │                          │── query/mutation ──►│
-   │                         │                          │◄── rows ────────────│
-   │                         │◄───────────── result ────│                     │
-   │◄── JSON ────────────────│                          │                     │
-   │                                                                          │
-React Query caches result under queryKey; components re-render.
+                        │
+                        ▼
+          POST /plan/generate?weekStart=YYYY-MM-DD
+                        │
+                        ├─► load pending tasks, weekly classes, and fixed events
+                        └─► generatePlan({ weekStart, tasks, fixedEvents, availabilityRules })
+                                      │
+                                      ▼
+          1. buildAvailabilityWindows (Mon-Sun 08:00-23:59)
+          2. subtractFixedEvents (subtract class/exam slots, preserve >= 25m gaps)
+          3. sortTasks (Priority DESC ──► Deadline ASC ──► Title ASC)
+          4. allocateBlocks (allocate 50m focus slots + 10m buffers)
+                                      │
+                                      ▼
+          Prisma Transaction:
+            • delete existing StudyBlock records for week
+            • insert new StudyBlock records
 ```
 
 ---
 
-## 8. Database schema (visual)
+### Pipeline 5: Gamified Focus Sprint & XP Calculation
 
 ```
-┌────────┐ 1:1  ┌─────────────┐
-│  User  │──────│  UserStats  │
-│        │      └─────────────┘
-│        │ 1:1  ┌──────────────────────┐
-│        │──────│ IntegrationCanvas    │
-│        │      └──────────────────────┘
-│        │ 1:N  ┌─────────┐
-│        │──────│  Task   │────────────┐
-│        │      └────┬────┘            │
-│        │           │ 1:N             │ 1:N
-│        │           ▼                 ▼
-│        │      ┌─────────────┐  ┌────────────────┐
-│        │      │ StudyBlock  │──│ StudySession    │  (1:1 via blockId)
-│        │      └─────────────┘  └────────────────┘
-│        │ 1:N  ┌─────────────┐
-│        │──────│ WeeklyClass │
-│        │      └─────────────┘
-│        │ 1:N  ┌─────────────┐
-│        │──────│ FixedEvent  │
-│        │      └─────────────┘
-│        │ 1:N  ┌─────────┐
-│        │──────│ Reward  │
-└────────┘      └─────────┘
+User completes focus sprint on StrictModePage
+                        │
+                        ▼
+          POST /sessions/finish { sessionId, focusedMinutes, completed, strictMode }
+                        │
+                        ├─► verify valid session (completed & focusedMinutes >= 10)
+                        └─► computeSessionBaseXp():
+                              minutes * 1.0
+                              * difficultyMultiplier (easy 1x, medium 1.25x, hard 1.5x)
+                              * urgencyMultiplier (<24h 1.2x, <72h 1.1x, else 1.0x)
+                              * strictModeMultiplier (1.15x)
+                                      │
+                                      ▼
+                        Daily Bookkeeping & Streak Check:
+                          • update streak counter (resets if gap > 1 day)
+                          • apply streak multiplier (4+ days 1.05x, 8+ 1.1x, 15+ 1.2x)
+                          • recalculate total XP & level: floor(sqrt(totalXp / 100))
+                                      │
+                                      ▼
+                        Prisma Transaction:
+                          • update StudySession record
+                          • update UserStats record
+                          • mark linked Task / StudyBlock complete
 ```
-
-All FKs cascade on user deletion (`onDelete: Cascade`). `StudyBlock.task` uses `SetNull` so deleting a task doesn't wipe your history.
 
 ---
 
-## 9. State & caching — where does state live?
+## 5. Production Deployment on AWS Lightsail (`edupilot.biz`)
 
-| Type | Lives in | Examples |
+The application is deployed on an **AWS Lightsail** instance running Ubuntu / Docker Compose behind Cloudflare DNS and Nginx HTTPS termination.
+
+### Production Topology & Environment Setup
+
+1. **Domain & Network**:
+   - Primary domain: `https://edupilot.biz`
+   - Cloudflare manages DNS records and proxies HTTPS traffic to the Lightsail instance.
+   - Lightsail firewall exposes ports `80` (HTTP) and `443` (HTTPS).
+
+2. **Docker Compose Production Stack**:
+   - `frontend`: Serves optimized React dist files via Nginx. Proxy-passes `/api/` to `http://backend:4000/`.
+   - `backend`: Runs Node.js Express API. Connects internally to `postgres:5432` and `chroma:8000`.
+   - `postgres`: PostgreSQL 16 container backed by persistent named volume `postgres-data`.
+   - `chroma`: ChromaDB vector database container backed by persistent named volume `chroma-data`.
+
+3. **Production Deployment Procedure**:
+
+```bash
+# SSH into the AWS Lightsail production server
+ssh ubuntu@edupilot.biz
+
+# Navigate to project repository and pull latest changes from dev branch
+cd ~/EduPilot
+git pull origin dev
+
+# Rebuild and restart the production Docker container stack
+docker compose build --no-cache
+docker compose up -d
+
+# Verify container liveness and database migration status
+docker compose ps
+docker compose exec backend npx prisma migrate status
+docker compose exec backend node -e "fetch('http://127.0.0.1:4000/health').then(r=>r.json()).then(console.log)"
+```
+
+4. **Production Environment Variables (`backend/.env`)**:
+
+```env
+NODE_ENV=production
+PORT=4000
+CORS_ORIGIN=https://edupilot.biz
+DATABASE_URL=postgresql://edupilot:SECURE_PASSWORD@postgres:5432/edupilot
+JWT_ACCESS_SECRET=PRODUCTION_ACCESS_SECRET_32_CHARS
+JWT_REFRESH_SECRET=PRODUCTION_REFRESH_SECRET_32_CHARS
+ENCRYPTION_KEY=PRODUCTION_CANVAS_ENCRYPTION_KEY_32_CHARS
+COOKIE_DOMAIN=edupilot.biz
+COOKIE_SECURE=true
+ANTHROPIC_API_KEY=sk-ant-api03-...
+ASSISTANT_RATE_LIMIT=20
+ASSISTANT_RATE_WINDOW_MINUTES=1
+GEMINI_API_KEY=AIzaSy...
+GEMINI_EMBEDDING_MODEL=gemini-embedding-001
+GEMINI_EMBEDDING_DIMENSIONS=768
+CHROMA_URL=http://chroma:8000
+DOCUMENT_MAX_SIZE_MB=10
+CANVAS_SYNC_INTERVAL_MINUTES=60
+CANVAS_REQUEST_TIMEOUT_MS=15000
+CANVAS_REQUEST_RETRIES=2
+```
+
+---
+
+## 6. Troubleshooting & Operations
+
+| Symptom / Issue | Potential Cause | Verification & Resolution |
 |---|---|---|
-| Auth state (who am I?) | `authStore` (Zustand, in-memory) | `user` |
-| Theme | `themeStore` + `localStorage` | `dark` / `light` |
-| Strict timer | `strictStore` + `localStorage` | `active`, `endsAt`, `focusMinutes` |
-| Chat history | component state + `localStorage[edupilot_chat_${userId}]` | last 50 messages |
-| Server state | **React Query cache**, keyed by tuples | `['tasks']`, `['stats-overview']`, `['plan-blocks', weekStart]`, `['rewards']` |
-| Auth tokens | **httpOnly cookies** (not accessible to JS) | `accessToken`, `refreshToken` |
-| Durable data | PostgreSQL | everything else |
+| **`502 Bad Gateway` on Canvas or API calls** | Backend container down or restarting due to missing env var or database connection issue. | Run `docker compose logs --tail=100 backend` to inspect boot logs. Ensure PostgreSQL container is healthy. |
+| **`User location is not supported` on Gemini API** | Server IP address is in an unsupported region for Google Gemini embeddings API. | Verify egress IP with `docker compose exec backend node -e "fetch('https://ipinfo.io/json').then(r=>r.json()).then(console.log)"`. Ensure server or VPN exit node is in a supported country (e.g. US). |
+| **Assistant returns 429 Too Many Requests** | User exceeded sliding rate limit (`ASSISTANT_RATE_LIMIT`, default 20/min). | Check response `Retry-After` header. Adjust limit in `.env` if required for heavy study sessions. |
+| **Document stays in `processing` or `failed` status** | File buffer extraction failed or Gemini embedding API call timed out. | Go to `MaterialsPage`, view error message under document, and click `Retry failed`. |
+| **Canvas materials not appearing under course** | Canvas API token invalid, or materials not published inside a course module. | Verify token on Canvas Integration page. Ensure files in Canvas are linked within an active module. |
 
-React Query is the glue: mutations return, `invalidateQueries` is called, affected `useQuery`s refetch automatically.
-
----
-
-## 10. Environment variables (complete)
-
-### Backend
-| Var | Required | Purpose |
-|---|---|---|
-| `DATABASE_URL` | ✅ | Postgres connection string. |
-| `JWT_ACCESS_SECRET` | ✅ | Signs 15-min access tokens. |
-| `JWT_REFRESH_SECRET` | ✅ | Signs 7-day refresh tokens. |
-| `ENCRYPTION_KEY` | ✅ (≥32 chars) | AES-256-GCM key for Canvas tokens. |
-| `PORT` | — (4000) | API port. |
-| `CORS_ORIGIN` | — (`http://localhost:5173`) | Comma-separated allowed origins. |
-| `COOKIE_SECURE` | — (`false`) | Set `true` in prod for HTTPS cookies. |
-| `COOKIE_DOMAIN` | — | Set to your domain in prod. |
-| `ANTHROPIC_API_KEY` | optional | Enables `/assistant` chat. |
-| `ASSISTANT_RATE_LIMIT` | — (20) | Maximum assistant requests per user per rate-limit window. |
-| `ASSISTANT_RATE_WINDOW_MINUTES` | — (1) | Assistant rate-limit window length. |
-| `GEMINI_API_KEY` | optional | Enables document/course embeddings. |
-| `CANVAS_WEBHOOK_SECRET` | optional | Enables webhook signature verification. |
-| `CANVAS_SYNC_INTERVAL_MINUTES` | — (60) | Background sync cadence, set 0 to disable. |
-
-### Frontend
-| Var | Required | Purpose |
-|---|---|---|
-| `VITE_API_URL` | — (`http://localhost:4000`) | Base URL for all API calls. |
-
----
-
-## 11. Deployment topology (Amazon Lightsail)
-
-```
-Internet ──► Nginx (80/443)
-              │
-              ├── /          → static files in /var/www/edupilot/ (vite build output)
-              └── /api/*     → proxy_pass http://127.0.0.1:4000 (PM2 process `edupilot-api`)
-
-PostgreSQL runs on the same instance (or a separate Lightsail DB).
-PM2 keeps edupilot-api alive + restarts on crash.
 ```
 
 Deploy recipe:

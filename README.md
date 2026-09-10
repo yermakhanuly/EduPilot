@@ -116,8 +116,9 @@ proxy at `/api` and are forwarded to `http://localhost:4000`.
 - Planner: `POST /plan/generate`, `GET /plan/blocks`
 - Sessions/XP: `POST /sessions/start`, `POST /sessions/finish`
 - Stats: `GET /stats/overview`, `GET /stats/weekly`, `GET /stats/leaderboard`
-- Assistant: `POST /assistant/ask`
-- Canvas: `POST /canvas/connect`, `POST /canvas/sync`
+- Assistant: `GET/POST /assistant/conversations`, `POST /assistant/conversations/:id/messages` (SSE streaming), `POST /assistant/ask`
+- Knowledge: `GET/POST/PATCH/DELETE /knowledge/courses`, `GET/POST/DELETE /knowledge/documents`, `POST /knowledge/retry-failed`
+- Canvas: `POST /canvas/connect`, `POST /canvas/sync`, `POST /canvas/knowledge-sync`
 
 ## Troubleshooting
 - **Login/session issues:** check `CORS_ORIGIN`, `COOKIE_DOMAIN`, and `COOKIE_SECURE`.
