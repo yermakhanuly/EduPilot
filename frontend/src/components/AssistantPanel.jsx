@@ -4,6 +4,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { assistantApi } from '../api/client'
 import { useThemeStore } from '../store/themeStore'
 import { useAssistantStore } from '../store/assistantStore'
+import { FormattedText } from './FormattedText'
 
 const EMPTY_MESSAGES = []
 
@@ -147,7 +148,11 @@ export function AssistantPanel() {
                 key={msg.id}
                 className={`assistant-bubble ${msg.role === 'user' ? 'user' : 'assistant'}`}
               >
-                <p className="assistant-text">{msg.content}</p>
+                {msg.role === 'user' ? (
+                  <p className="assistant-text">{msg.content}</p>
+                ) : (
+                  <FormattedText text={msg.content} className="assistant-text" />
+                )}
               </div>
             ))
           )}

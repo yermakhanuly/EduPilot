@@ -1734,6 +1734,50 @@
   white-space: pre-wrap;
 }
 
+.formatted-text p {
+  margin: 0 0 8px 0;
+}
+
+.formatted-text p:last-child {
+  margin-bottom: 0;
+}
+
+.formatted-text ul,
+.formatted-text ol {
+  margin: 6px 0 8px 20px;
+  padding: 0;
+}
+
+.formatted-text li {
+  margin-bottom: 4px;
+}
+
+.formatted-text code {
+  background: rgba(126, 224, 255, 0.12);
+  color: var(--accent);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 0.9em;
+}
+
+.formatted-code-block {
+  background: var(--panel-muted);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  overflow-x: auto;
+  margin: 8px 0;
+}
+
+.formatted-code-block code {
+  background: transparent;
+  padding: 0;
+  color: var(--text);
+  font-size: 13px;
+  white-space: pre;
+}
+
 .message-edit-button {
   margin-top: 8px;
   padding: 0;
