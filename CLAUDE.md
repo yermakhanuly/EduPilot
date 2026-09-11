@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-EduPilot is a gamified student productivity app that generates optimized weekly study plans, integrates with Canvas LMS, and rewards focused study sessions with XP/levels. The system has two independent Node.js apps: an Express backend (port 4000) and a React frontend (port 5173).
+EduPilot is a gamified student productivity app that generates optimized weekly study plans, integrates with Canvas LMS, and rewards focused study sessions with XP/levels. The system has a Node.js 22 Express backend (port 4000) and a React/Vite frontend served by Nginx (port 5173 locally, port 80 inside Docker).
 
 ## Commands
 
@@ -40,7 +40,7 @@ npx prisma migrate deploy               # Apply migrations in production
 - **Config**: `config/env.js` — Zod-validated environment variables (fail-fast on startup if required vars missing)
 - **Auth**: `middleware/requireAuth.js` — JWT verification; issues short-lived access tokens (15m) stored in httpOnly cookies, with refresh tokens (7d)
 - **Routes**: One file per resource in `routes/` — all inputs validated with Zod schemas
-- **Services**: Business logic separate from routes — `planner.js`, `xp.js`, `canvas.js`, `canvasSync.js`, `assistantAgent.js`, and the document/RAG services
+- **Services**: Business logic separate from routes — `planner.js`, `xp.js`, `canvas.js`, `canvasSync.js`, `canvasKnowledge.js`, `assistantAgent.js`, and the document/RAG services
 
 ### Frontend (`frontend/src/`)
 - **Router**: `router.jsx` — React Router 7 with three layouts: `PublicLayout` (landing/auth), `AppLayout` (main app with sidebar), `StrictLayout` (full-screen focus mode)
@@ -97,6 +97,7 @@ Generates `StudyBlock` records for a given week:
 
 ### AI Assistant (`routes/assistant.js`)
 - Uses LangGraph/LangChain with Anthropic Claude `claude-haiku-4-5-20251001`
+- Supports SSE token streaming, tool-activity status events, AbortController cancellation, conversation branching, and response regeneration
 - Uses Gemini embeddings and ChromaDB retrieval when relevant course or document content is available
 - Builds context from user's tasks, classes, events, stats, next 12 study blocks, and retrieved knowledge excerpts
 - Caps conversation history at 20 messages; temperature 0.3, max 400 tokens

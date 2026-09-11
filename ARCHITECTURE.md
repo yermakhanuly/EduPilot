@@ -46,7 +46,7 @@ A complete map of every file, technology, and pipeline in the project. Use this 
 
 The system comprises four containerized services managed by **Docker Compose**:
 1. **`frontend`**: Nginx web server hosting the compiled React 19 production build and proxying `/api/*` to backend:4000.
-2. **`backend`**: Node.js ESM Express server handling business logic, authentication, Canvas synchronization, document ingestion, and LangGraph/Claude AI assistant orchestration.
+2. **`backend`**: Node.js 22 ESM Express server handling business logic, authentication, Canvas synchronization, document ingestion, and LangGraph/Claude AI assistant orchestration.
 3. **`postgres`**: PostgreSQL 16 database storing user accounts, schedules, tasks, stats, study sessions, Canvas tokens, course definitions, and persistent AI conversations.
 4. **`chroma`**: ChromaDB vector store running cosine similarity search over text chunks extracted from uploaded PDF/DOCX/PPTX files and Canvas course content.
 
@@ -58,7 +58,7 @@ The system comprises four containerized services managed by **Docker Compose**:
 
 | Technology | Role & Purpose in Project |
 |---|---|
-| **Node.js 20 (ESM)** | Modern JavaScript runtime with native module syntax (`"type": "module"`). |
+| **Node.js 22 (ESM)** | Modern JavaScript runtime with native module syntax (`"type": "module"`). |
 | **Express.js 4** | Web server framework handling API routing, middleware chaining, and SSE streaming. |
 | **Prisma ORM 6** | Type-safe database client and migration tool managing PostgreSQL schemas and queries. |
 | **PostgreSQL 16** | Relational database for all persistent application data, user accounts, and AI conversation history. |
@@ -212,6 +212,17 @@ Centralized HTTP client wrapping `fetch`. Automatically attaches credentials (co
 - **`frontend/src/hooks/usePageTitle.js`**: Hook dynamically setting `document.title` based on the active React Router location path.
 - **`frontend/src/utils/time.js`**: Relative time formatting helper (`formatTimeUntil`) converting dates into human-readable deadline text ("Due in 2 days", "Past due").
 - **`frontend/src/data/mockData.js`**: Fallback mock data structures for offline or initial UI prototyping.
+
+### Runtime State Ownership
+
+| State | Owner | Persistence / Scope |
+|---|---|---|
+| Authenticated user and session bootstrap | `authStore` + httpOnly cookies | Cookies persist the session; user object is in memory. |
+| Theme preference | `themeStore` | `localStorage` under `edupilot-theme`. |
+| Strict focus timer | `strictStore` | Timer configuration and active timer state use `localStorage`. |
+| Active assistant conversation | `assistantStore` | Active conversation ID is shared between the FAB and full Assistant page. |
+| Conversation history | PostgreSQL `Conversation` and `ChatMessage` models | Durable across browsers/devices; branches, sources, and actions are stored server-side. |
+| Server data | TanStack React Query | In-memory cache; mutations invalidate affected query keys. |
 
 ---
 
@@ -388,9 +399,9 @@ The application is deployed on an **AWS Lightsail** instance running Ubuntu / Do
 # SSH into the AWS Lightsail production server
 ssh ubuntu@edupilot.biz
 
-# Navigate to project repository and pull latest changes from dev branch
+# Navigate to project repository and pull latest changes from main branch
 cd ~/EduPilot
-git pull origin dev
+git pull origin main
 
 # Rebuild and restart the production Docker container stack
 docker compose build --no-cache
@@ -408,7 +419,8 @@ docker compose exec backend node -e "fetch('http://127.0.0.1:4000/health').then(
 NODE_ENV=production
 PORT=4000
 CORS_ORIGIN=https://edupilot.biz
-DATABASE_URL=postgresql://edupilot:SECURE_PASSWORD@postgres:5432/edupilot
+DATABASE_URL=postgresql://postgres.PROJECT_REF:PASSWORD@aws-1-ap-southeast-1.pooler.supabase.com:6543/postgres?pgbouncer=true&sslmode=require
+DIRECT_URL=postgresql://postgres.PROJECT_REF:PASSWORD@aws-1-ap-southeast-1.pooler.supabase.com:5432/postgres?sslmode=require
 JWT_ACCESS_SECRET=PRODUCTION_ACCESS_SECRET_32_CHARS
 JWT_REFRESH_SECRET=PRODUCTION_REFRESH_SECRET_32_CHARS
 ENCRYPTION_KEY=PRODUCTION_CANVAS_ENCRYPTION_KEY_32_CHARS
@@ -439,18 +451,21 @@ CANVAS_REQUEST_RETRIES=2
 | **Document stays in `processing` or `failed` status** | File buffer extraction failed or Gemini embedding API call timed out. | Go to `MaterialsPage`, view error message under document, and click `Retry failed`. |
 | **Canvas materials not appearing under course** | Canvas API token invalid, or materials not published inside a course module. | Verify token on Canvas Integration page. Ensure files in Canvas are linked within an active module. |
 
+## 7. Production Operations Checklist
+
+The current production deployment is Docker Compose based. Do not use the previous PM2/static-file deployment recipe.
+
+```bash
+cd ~/EduPilot
+git pull origin main
+docker compose build --no-cache
+docker compose up -d --force-recreate
+docker compose ps
+docker compose logs --tail=100 backend
+docker compose exec backend node -e "fetch('http://127.0.0.1:4000/health').then(r=>r.json()).then(console.log)"
 ```
 
-Deploy recipe:
-```bash
-# On the server
-cd ~/edupilot && git pull origin main
-cd backend && npm install
-pm2 restart edupilot-api --update-env
-# Frontend (if changed)
-cd ../frontend && npm install && npm run build
-sudo cp -r dist/* /var/www/edupilot/
-```
+The Supabase pooler is used for runtime database access through `DATABASE_URL`; `DIRECT_URL` is used by Prisma for migrations. Existing Supabase data must be preserved. Resolve interrupted migrations only after inspecting the live schema and `_prisma_migrations` table.
 
 ---
 

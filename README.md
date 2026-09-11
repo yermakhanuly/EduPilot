@@ -39,8 +39,8 @@ EduPilot is a gamified study tracker that helps students plan, track, and optimi
 - **Bonuses** apply for difficulty, urgency, strict mode, and streaks.
 
 ## Repository Structure
-- `backend/` — Express API, Prisma schema, auth, planner, sessions, stats, Canvas routes.
-- `frontend/` — Vite React app with public/app/strict layouts.
+- `backend/` — Express API, Prisma schema, auth, planner, sessions, stats, Canvas routes, RAG ingestion, and streaming assistant.
+- `frontend/` — Vite React app with public/app/strict layouts, Materials, and Assistant workspaces.
 - `backend/prisma/schema.prisma` — DB models.
 - `backend/src/services/planner.js` — Scheduling logic.
 - `frontend/src/router.jsx` — App routing.
@@ -48,7 +48,7 @@ EduPilot is a gamified study tracker that helps students plan, track, and optimi
 ## Run Locally (Dev)
 
 ### Requirements
-- Node.js 20+
+- Node.js 22+
 - PostgreSQL (Supabase works)
 
 ### Backend
@@ -63,6 +63,7 @@ NODE_ENV=development
 PORT=4000
 CORS_ORIGIN=http://localhost:5173
 DATABASE_URL=postgresql://USER:PASSWORD@HOST:5432/DB
+DIRECT_URL=postgresql://USER:PASSWORD@HOST:5432/DB
 JWT_ACCESS_SECRET=your_access_secret
 JWT_REFRESH_SECRET=your_refresh_secret
 ENCRYPTION_KEY=32+_chars_minimum
@@ -103,10 +104,18 @@ When running the frontend locally without `VITE_API_URL`, requests use the Vite
 proxy at `/api` and are forwarded to `http://localhost:4000`.
 
 ## Production Notes
-- Set `CORS_ORIGIN` to your production domain (https).
-- Set `COOKIE_SECURE=true` and `COOKIE_DOMAIN=yourdomain.com`.
-- Build frontend with `VITE_API_URL=https://yourdomain.com/api`.
-- Run Prisma migrations: `npx prisma migrate deploy`.
+Production runs as Docker Compose services on AWS Lightsail behind host Nginx and HTTPS. Host Nginx proxies `/` to `127.0.0.1:5173` and `/api/` to `127.0.0.1:4000`.
+
+```bash
+cd ~/edupilot
+git pull origin main
+docker compose build --no-cache
+docker compose up -d --force-recreate
+docker compose ps
+docker compose logs --tail=100 backend
+```
+
+Use Supabase pooler URLs for production `DATABASE_URL` and `DIRECT_URL`. Keep existing Supabase data; do not replace it with the local PostgreSQL volume. Keep secrets only in `backend/.env` on the server.
 
 ## API Endpoints (Core)
 - Auth: `POST /auth/signup`, `POST /auth/login`, `POST /auth/logout`, `GET /auth/me`
